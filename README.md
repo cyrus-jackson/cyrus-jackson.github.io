@@ -7,7 +7,23 @@ A single-page project tracker that runs entirely in the browser and uses **GitHu
 - **Inspiration** — a customisable gallery of reference projects: link, image, tags, and a note on what exactly you want out of it. Synced as `data/inspiration.json` in this repo.
 - **Progress** — completed-per-week chart, column distribution, recent activity.
 - **Images** — drop an image into any task or reference. It gets committed to `data/uploads/` here and linked by raw URL.
+- **Design Docs** — the markdown at your repo root (ARCHITECTURE, DESIGN, PALETTE, CHARACTERS…) rendered
+  in-app and searchable across every file at once. Hex codes render as colour swatches; click one to copy it.
 - **Six themes** — Kea Neon, Atompunk, Midnight, Terminal, Paper, Mist. Picker is bottom-left.
+
+### Things that save keystrokes
+
+- **Tickable checklists** — click a `- [ ]` in a task and the issue body is rewritten on GitHub. No editor, no save.
+- **Paste screenshots** — ⌘V an image into any task; it uploads to the assets repo and embeds itself.
+- **Quick capture** — press `c` anywhere, type a thought, Enter. It becomes a Todo card without breaking flow.
+  Shift+Enter opens the full editor with what you typed already in it.
+- **Command palette** — ⌘K (Ctrl+K) to jump to any task, doc, view, repo or theme, or fire an action.
+- **Import loose notes** — Settings → *Import tasks from a file* reads something like `ideas.txt` and turns it
+  into real tasks. It understands three shapes: a heading line ending in `:` takes the following paragraph as
+  its description; a block of bullets becomes one task per bullet; bullets under a heading become a tickable
+  checklist inside that task.
+- **Devlog** — Progress → *Devlog* builds a markdown summary of what shipped, merged and is in flight over a
+  chosen window, ready to paste into a post.
 
 No build step, no framework, no backend. Three files: `index.html`, `assets/app.css`, `assets/app.js`.
 
@@ -124,7 +140,7 @@ Worth it if you ever share the board with someone else. Overkill for one person 
 
 ## Keyboard
 
-`/` search · `n` new task · `r` refresh · `Esc` close dialog
+`⌘K` command palette · `c` quick capture · `/` search · `n` new task · `r` refresh · `Esc` close dialog
 
 ## Layout
 

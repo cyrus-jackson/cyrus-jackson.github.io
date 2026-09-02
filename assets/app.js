@@ -126,7 +126,8 @@ function toast(msg, kind = '') {
 /* ---------- markdown (small + safe: everything is escaped first) ---------- */
 const safeUrl = u => /^(https?:|mailto:|\/|\.|#)/i.test(String(u).trim()) ? String(u).trim() : '#';
 
-function md(src) {
+function md(src, opts = {}) {
+  let ti = 0;
   if (!src || !src.trim()) return '<p style="color:var(--fg-faint)">No description.</p>';
 
   const slots = [];
@@ -162,7 +163,7 @@ function md(src) {
     if ((m = t.match(/^>\s?(.*)$/)))             { flushP(); flushL(); out.push(`<blockquote>${m[1]}</blockquote>`); continue; }
     if ((m = t.match(/^[-*+]\s+\[([ xX])\]\s+(.*)$/))) {
       flushP(); if (list !== 'ul') { flushL(); out.push('<ul>'); list = 'ul'; }
-      out.push(`<li class="task"><input type="checkbox" disabled ${m[1] !== ' ' ? 'checked' : ''}><span>${m[2]}</span></li>`); continue;
+      out.push(`<li class="task"><input type="checkbox" ${opts.tasks ? `data-ti="${ti++}"` : 'disabled'} ${m[1] !== ' ' ? 'checked' : ''}><span>${m[2]}</span></li>`); continue;
     }
     if ((m = t.match(/^[-*+]\s+(.*)$/))) {
       flushP(); if (list !== 'ul') { flushL(); out.push('<ul>'); list = 'ul'; }
@@ -181,6 +182,19 @@ function md(src) {
     html = html.replace(/\u0001(\d+)\u0001/g, (whole, n) => slots[+n] !== undefined ? slots[+n] : whole);
   }
   return html;
+}
+
+function toggleTask(body, index) {
+  const lines = String(body || '').split('\n');
+  let n = 0, fence = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*```/.test(lines[i])) { fence = !fence; continue; }
+    if (fence) continue;
+    const m = lines[i].match(/^(\s*[-*+]\s+\[)([ xX])(\].*)$/);
+    if (!m) continue;
+    if (n++ === index) { lines[i] = m[1] + (m[2] === ' ' ? 'x' : ' ') + m[3]; return lines.join('\n'); }
+  }
+  return null;
 }
 
 const firstImage = body => { const m = String(body || '').match(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)/); return m ? m[1] : null; };
@@ -398,6 +412,7 @@ async function loadAll({ quiet = false, force = false } = {}) {
     S.labels = labels || [];
     $('#demoBanner')?.remove();
     S.lastLoad = { key: repoKey(), t: Date.now() };
+    S.docs = null; S.docCache = {}; S.doc = null;
     S.checksLoaded = false;
     if (!quiet) toast(`Loaded ${S.issues.length} tasks · ${S.prs.length} PRs`, 'ok');
     if (S.view === 'prs') loadChecks();
@@ -665,9 +680,10 @@ function closeModal() {
   const r = $('#modalRoot'); r.hidden = true; r.innerHTML = '';
   document.removeEventListener('keydown', escClose);
 }
-function openModal(html, { wide = false } = {}) {
+function openModal(html, { wide = false, slim = false } = {}) {
   const root = $('#modalRoot');
-  root.innerHTML = `<div class="modal${wide ? ' wide' : ''}">${html}</div>`;
+  root.className = 'modal-root' + (slim ? ' top' : '');
+  root.innerHTML = `<div class="modal${wide ? ' wide' : ''}${slim ? ' slim' : ''}">${html}</div>`;
   root.hidden = false;
   root.onclick = e => { if (e.target === root) closeModal(); };
   document.addEventListener('keydown', escClose);
@@ -690,6 +706,34 @@ async function uploadImage(file) {
     body: { message: `tracker: upload ${safe}`, content: bufToB64(buf), branch: a.branch },
   });
   return `https://raw.githubusercontent.com/${a.owner}/${a.repo}/${a.branch}/${path}`;
+}
+
+function wirePaste(scope, textarea, onUrl) {
+  scope.addEventListener('paste', async e => {
+    const files = [...(e.clipboardData && e.clipboardData.files || [])].filter(f => f.type.startsWith('image/'));
+    if (!files.length) return;
+    e.preventDefault();
+    for (const f of files) {
+      const mark = `![uploading ${esc(f.name || 'screenshot')}…]()`;
+      insertAtCursor(textarea, mark);
+      try {
+        const url = await uploadImage(f);
+        textarea.value = textarea.value.replace(mark, `![](${url})`);
+        if (onUrl) onUrl(url);
+        toast('Screenshot uploaded', 'ok');
+      } catch (err) {
+        textarea.value = textarea.value.replace(mark, '');
+        toast(err.message, 'err');
+      }
+    }
+  });
+}
+
+function insertAtCursor(el, text) {
+  const a = el.selectionStart ?? el.value.length, b = el.selectionEnd ?? a;
+  el.value = el.value.slice(0, a) + text + el.value.slice(b);
+  el.selectionStart = el.selectionEnd = a + text.length;
+  el.focus();
 }
 
 function wireDropzone(zone, onUrl) {
@@ -748,7 +792,7 @@ async function openTask(num) {
       </div>
 
       <div class="tabs"><button class="tab is-on" data-tab="view">Description</button><button class="tab" data-tab="edit">Edit</button></div>
-      <div id="tView" class="md">${md(issue.body)}</div>
+      <div id="tView" class="md">${md(issue.body, { tasks: true })}</div>
       <textarea class="textarea" id="tBody" hidden style="min-height:190px">${esc(issue.body || '')}</textarea>
       <div class="dropzone" id="tDrop" style="margin-top:11px" hidden>
         <svg style="vertical-align:-3px"><use href="#i-image"/></svg> Drop images here or click to upload — they are committed to your assets repo and linked in the description
@@ -772,14 +816,36 @@ async function openTask(num) {
     </div>`, { wide: true });
 
   const body = $('#tBody', m), view = $('#tView', m), drop = $('#tDrop', m);
+
+  view.addEventListener('change', async e => {
+    const box = e.target.closest('input[data-ti]');
+    if (!box) return;
+    const next = toggleTask(body.value, +box.dataset.ti);
+    if (next === null) return;
+    body.value = next;
+    const tp = taskProgress(next);
+    if (tp) toast(`${tp.done}/${tp.total} subtasks done`);
+    if (S.demo) { issue.body = next; renderBoard(); return; }
+    box.disabled = true;
+    try {
+      const r = await gh(`/repos/${owner}/${repo}/issues/${num}`, { method: 'PATCH', body: { body: next } });
+      Object.assign(issue, r.data);
+      renderBoard();
+    } catch (err) {
+      toast('Could not save: ' + err.message, 'err');
+      body.value = toggleTask(next, +box.dataset.ti);
+      box.checked = !box.checked;
+    } finally { box.disabled = false; }
+  });
   $$('.tab', m).forEach(t => t.onclick = () => {
     const edit = t.dataset.tab === 'edit';
     $$('.tab', m).forEach(x => x.classList.toggle('is-on', x === t));
     view.hidden = edit; body.hidden = !edit; drop.hidden = !edit;
-    if (!edit) view.innerHTML = md(body.value);
+    if (!edit) view.innerHTML = md(body.value, { tasks: true });
   });
   $$('#tLabels .chip', m).forEach(c => c.onclick = () => c.classList.toggle('is-on'));
   wireDropzone(drop, url => { body.value += `\n\n![](${url})\n`; });
+  wirePaste(m, body);
 
   // comments
   (async () => {
@@ -825,13 +891,13 @@ async function openTask(num) {
 }
 
 /* ---------- new task ---------- */
-function openNewTask(colId) {
+function openNewTask(colId, seed = '') {
   const { owner, repo } = repoNow();
   const statusLabels = new Set(S.columns.map(c => c.label.toLowerCase()));
   const m = openModal(`
     ${modalHead('New task')}
     <div class="modal-body">
-      <div class="field"><label>Title</label><input class="input" id="nTitle" placeholder="What needs doing?" autofocus></div>
+      <div class="field"><label>Title</label><input class="input" id="nTitle" placeholder="What needs doing?" value="${attr(seed)}" autofocus></div>
       <div class="row" style="margin-bottom:13px">
         <div class="field" style="margin:0;flex:0 0 190px"><label>Column</label>
           <select class="select" id="nCol">${S.columns.map(c =>
@@ -854,6 +920,7 @@ function openNewTask(colId) {
 
   $$('#nLabels .chip', m).forEach(c => c.onclick = () => c.classList.toggle('is-on'));
   wireDropzone($('#nDrop', m), url => { $('#nBody', m).value += `\n\n![](${url})\n`; });
+  wirePaste(m, $('#nBody', m));
   setTimeout(() => $('#nTitle', m).focus(), 40);
 
   $('#nSave', m).onclick = async () => {
@@ -1077,7 +1144,7 @@ function renderProgress() {
       </div>
 
       <div class="panel">
-        <h3>Recently finished</h3>
+        <h3>Recently finished <button class="btn btn-ghost btn-sm" data-act="devlog" style="float:right;margin-top:-4px"><svg><use href="#i-copy"/></svg>Devlog</button></h3>
         <div class="legend-row">${closed.slice(0, 8).map(i => `
           <div class="legend-item" style="gap:9px">
             <span class="mono" style="color:var(--fg-faint);min-width:44px">#${i.number}</span>
@@ -1166,6 +1233,7 @@ function renderSettings() {
         <div class="kv"><b>Request cache</b><span>${Object.keys(httpCache).length} cached responses · ${(cacheBytes() / 1024).toFixed(0)} KB</span></div>
         <div class="kv"><b>Calls saved</b><span>${cacheSaves} unchanged response(s) returned without spending rate limit</span></div>
         <div class="row" style="margin-top:13px">
+          <button class="btn btn-ghost btn-sm" data-act="import"><svg><use href="#i-doc"/></svg>Import tasks from a file</button>
           <button class="btn btn-ghost btn-sm" data-act="cache-clear">Clear request cache</button>
           <button class="btn btn-ghost btn-sm" data-act="export">Export as JSON</button>
           <button class="btn btn-danger btn-sm" data-act="wipe">Clear local data</button>
@@ -1173,7 +1241,8 @@ function renderSettings() {
       </div>
 
       <div class="callout info">
-        <b>Keyboard:</b> <kbd>/</kbd> search · <kbd>n</kbd> new task · <kbd>r</kbd> refresh · <kbd>Esc</kbd> close dialog.
+        <b>Keyboard:</b> <kbd>⌘K</kbd> command palette · <kbd>c</kbd> quick capture · <kbd>/</kbd> search ·
+        <kbd>n</kbd> new task · <kbd>r</kbd> refresh · <kbd>Esc</kbd> close dialog.
         Drag cards between columns to move them; the move is written straight to GitHub.
       </div>
     </div>`;
@@ -1243,7 +1312,7 @@ function loadDemo() {
 }
 
 /* ---------- router ---------- */
-const TITLES = { board: 'Board', prs: 'Pull Requests', inspiration: 'Inspiration', progress: 'Progress', settings: 'Settings' };
+const TITLES = { board: 'Board', prs: 'Pull Requests', inspiration: 'Inspiration', docs: 'Design Docs', progress: 'Progress', settings: 'Settings' };
 
 function render() {
   $('#viewTitle').textContent = TITLES[S.view] || 'Board';
@@ -1260,6 +1329,11 @@ function render() {
   }
   else if (S.view === 'prs') { renderPRs(); loadChecks(); }
   else if (S.view === 'inspiration') renderInspiration();
+  else if (S.view === 'docs') {
+    renderDocs();
+    if (S.token && !S.docs) loadDocs().then(() => { renderDocs(); if (S.doc) openDoc(S.doc); });
+    else if (S.doc) openDoc(S.doc);
+  }
   else if (S.view === 'progress') renderProgress();
   else if (S.view === 'settings') renderSettings();
 }
@@ -1320,6 +1394,13 @@ function wire() {
   $('#themeDots').addEventListener('click', e => { const d = e.target.closest('.theme-dot'); if (d) applyTheme(d.dataset.theme); });
 
   document.addEventListener('click', e => {
+    const docBtn = e.target.closest('[data-doc]');
+    if (docBtn) { S.docQ = ''; openDoc(docBtn.dataset.doc); return; }
+    const sw = e.target.closest('.swatch');
+    if (sw) {
+      navigator.clipboard?.writeText(sw.dataset.hex).then(() => toast(`Copied ${sw.dataset.hex}`, 'ok')).catch(() => {});
+      return;
+    }
     const card = e.target.closest('.card');
     if (card && !e.target.closest('a,button') && Date.now() - (window.__dragEnd || 0) > 250) { openTask(+card.dataset.num); return; }
 
@@ -1327,6 +1408,9 @@ function wire() {
     const act = el.dataset.act;
 
     if (act === 'close') closeModal();
+    else if (act === 'import') openImport();
+    else if (act === 'devlog') openDevlog();
+    else if (act === 'capture') openCapture();
     else if (act === 'goto-settings') go('settings');
     else if (act === 'new') openNewTask(el.dataset.col);
     else if (act === 'filter') { const l = el.dataset.label; S.filters = S.filters.includes(l) ? S.filters.filter(x => x !== l) : [...S.filters, l]; render(); }
@@ -1385,8 +1469,14 @@ function wire() {
   });
 
   document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      if (!$('#modalRoot').hidden) closeModal();
+      openPalette(); return;
+    }
     if (e.target.matches('input,textarea,select') || !$('#modalRoot').hidden) return;
     if (e.key === '/') { e.preventDefault(); $('#search').focus(); }
+    else if (e.key === 'c') { e.preventDefault(); openCapture(); }
     else if (e.key === 'n' && S.view === 'board') { e.preventDefault(); openNewTask('todo'); }
     else if (e.key === 'r') { e.preventDefault(); loadAll({ force: true }); }
   });
@@ -1414,4 +1504,375 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+/* ============================================================
+   Part 4: quick capture, command palette, docs reader,
+           ideas import, devlog
+   ============================================================ */
+
+/* ---------- shared task creation ---------- */
+async function createTask({ title, body = '', labels = [], col = 'todo' }) {
+  const column = S.columns.find(c => c.id === col) || S.columns[0];
+  const payload = { title, body, labels: [...labels, column.label] };
+  if (S.demo) {
+    const issue = {
+      number: Math.max(0, ...S.issues.map(i => i.number)) + 1, title, body,
+      state: col === 'done' ? 'closed' : 'open',
+      labels: payload.labels.map(n => ({ name: n, color: '5a6470' })),
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      closed_at: col === 'done' ? new Date().toISOString() : null,
+      comments: 0, html_url: '#', user: { login: 'you' },
+    };
+    S.issues.unshift(issue);
+    return issue;
+  }
+  const { owner, repo } = repoNow();
+  const r = await gh(`/repos/${owner}/${repo}/issues`, { method: 'POST', body: payload });
+  if (S.closeOnDone && col === 'done') {
+    await gh(`/repos/${owner}/${repo}/issues/${r.data.number}`, { method: 'PATCH', body: { state: 'closed' } });
+    r.data.state = 'closed';
+  }
+  S.issues.unshift(r.data);
+  return r.data;
+}
+
+/* ---------- quick capture ---------- */
+function openCapture(seed = '') {
+  const m = openModal(`
+    <div class="capture">
+      <svg class="cap-icon"><use href="#i-bolt"/></svg>
+      <input id="capIn" class="cap-in" placeholder="What's on your mind?" autocomplete="off" value="${attr(seed)}">
+      <select id="capCol" class="select cap-col">${S.columns.map(c =>
+        `<option value="${c.id}" ${c.id === 'todo' ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+    </div>
+    <div class="cap-hint">
+      <b>Enter</b> file it &nbsp;·&nbsp; <b>Shift ↵</b> open the full editor &nbsp;·&nbsp; <b>Esc</b> cancel
+    </div>`, { slim: true });
+
+  const input = $('#capIn', m);
+  setTimeout(() => { input.focus(); input.select(); }, 30);
+
+  input.addEventListener('keydown', async e => {
+    if (e.key !== 'Enter') return;
+    const title = input.value.trim();
+    if (!title) return;
+    if (e.shiftKey) { closeModal(); openNewTask($('#capCol', m).value, title); return; }
+    e.preventDefault();
+    input.disabled = true;
+    try {
+      const issue = await createTask({ title, col: $('#capCol', m).value });
+      closeModal(); render(); paintCounts();
+      toast(`Filed as #${issue.number}`, 'ok');
+    } catch (err) { input.disabled = false; toast(err.message, 'err'); }
+  });
+}
+
+/* ---------- command palette ---------- */
+function paletteItems() {
+  const it = [];
+  const push = (group, label, hint, run, icon) => it.push({ group, label, hint, run, icon });
+
+  push('Action', 'New task', 'n', () => openNewTask('todo'), 'i-plus');
+  push('Action', 'Quick capture', 'c', () => openCapture(), 'i-bolt');
+  push('Action', 'Refresh from GitHub', 'r', () => { loadAll({ force: true }); loadInspiration(); }, 'i-refresh');
+  push('Action', 'Add reference', '', () => openInspEdit(null), 'i-spark');
+  push('Action', 'Import tasks from a repo file', '', () => openImport(), 'i-doc');
+  push('Action', 'Generate devlog', '', () => openDevlog(), 'i-doc');
+
+  for (const [v, t] of Object.entries(TITLES)) push('Go to', t, '', () => go(v), 'i-board');
+  for (const t of THEMES) push('Theme', t.name, '', () => applyTheme(t.id), 'i-spark');
+  S.repos.forEach((r, i) => push('Repository', `${r.owner}/${r.repo}`, '', () => {
+    S.active = i; store.set('active', i); S.filters = []; paintRepos(); loadAll();
+  }, 'i-github'));
+  for (const d of (S.docs || [])) push('Doc', d.name, '', () => { go('docs'); openDoc(d.path); }, 'i-doc');
+  for (const i of S.issues.slice(0, 300)) {
+    push('Task', `#${i.number} ${i.title}`, S.columns.find(c => c.id === colOf(i)).name, () => openTask(i.number), 'i-board');
+  }
+  return it;
+}
+
+function openPalette() {
+  const all = paletteItems();
+  const m = openModal(`
+    <div class="capture">
+      <svg class="cap-icon"><use href="#i-search"/></svg>
+      <input id="palIn" class="cap-in" placeholder="Jump to a task, view, theme…" autocomplete="off">
+    </div>
+    <div class="pal-list" id="palList"></div>`, { slim: true });
+
+  const input = $('#palIn', m), list = $('#palList', m);
+  let shown = [], cursor = 0;
+
+  const score = (item, q) => {
+    const hay = (item.group + ' ' + item.label).toLowerCase();
+    if (!q) return 1;
+    let i = 0;
+    for (const ch of q) { i = hay.indexOf(ch, i); if (i < 0) return 0; i++; }
+    return hay.includes(q) ? 3 : 1;
+  };
+
+  function draw() {
+    const q = input.value.trim().toLowerCase();
+    shown = all.map(x => ({ x, s: score(x, q) })).filter(r => r.s > 0)
+               .sort((a, b) => b.s - a.s).slice(0, 60).map(r => r.x);
+    cursor = Math.min(cursor, Math.max(0, shown.length - 1));
+    list.innerHTML = shown.length ? shown.map((x, i) => `
+      <button class="pal-row ${i === cursor ? 'is-on' : ''}" data-i="${i}">
+        <svg><use href="#${x.icon}"/></svg>
+        <span class="pal-group">${esc(x.group)}</span>
+        <span class="pal-label">${esc(x.label)}</span>
+        ${x.hint ? `<kbd>${esc(x.hint)}</kbd>` : ''}
+      </button>`).join('')
+      : '<div class="pal-empty">Nothing matches.</div>';
+    const on = list.querySelector('.is-on');
+    if (on) on.scrollIntoView({ block: 'nearest' });
+  }
+
+  const run = i => { const x = shown[i]; if (!x) return; closeModal(); setTimeout(x.run, 0); };
+
+  input.addEventListener('input', () => { cursor = 0; draw(); });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); cursor = Math.min(cursor + 1, shown.length - 1); draw(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); cursor = Math.max(cursor - 1, 0); draw(); }
+    else if (e.key === 'Enter') { e.preventDefault(); run(cursor); }
+  });
+  list.addEventListener('click', e => { const r = e.target.closest('.pal-row'); if (r) run(+r.dataset.i); });
+
+  draw();
+  setTimeout(() => input.focus(), 30);
+}
+
+/* ---------- design docs reader ---------- */
+async function loadDocs() {
+  if (!S.token) { S.docs = []; return; }
+  const { owner, repo } = repoNow();
+  try {
+    const entries = await ghGet(`/repos/${owner}/${repo}/contents/`);
+    S.docs = (Array.isArray(entries) ? entries : [])
+      .filter(e => e.type === 'file' && /\.(md|markdown|txt)$/i.test(e.name))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(e => ({ name: e.name, path: e.path, size: e.size }));
+  } catch { S.docs = []; }
+}
+
+async function docBody(path) {
+  S.docCache = S.docCache || {};
+  if (S.docCache[path]) return S.docCache[path];
+  const { owner, repo } = repoNow();
+  const r = await ghGet(`/repos/${owner}/${repo}/contents/${path}`);
+  const text = b64dec(r.content);
+  S.docCache[path] = text;
+  return text;
+}
+
+// PALETTE.md is mostly hex ramps — show them as colours, not text.
+function withSwatches(html) {
+  return html.replace(/<code>#([0-9a-fA-F]{6})<\/code>/g,
+    (_, hex) => `<button class="swatch" data-hex="#${hex}" title="Copy #${hex}"><i style="background:#${hex}"></i><code>#${hex}</code></button>`);
+}
+
+async function openDoc(path) {
+  S.doc = path;
+  renderDocs();
+  const pane = $('#docPane');
+  if (!pane) return;
+  pane.innerHTML = '<div class="skel" style="height:60vh"></div>';
+  try {
+    const text = await docBody(path);
+    pane.innerHTML = withSwatches(md(text));
+    pane.scrollTop = 0;
+  } catch (e) { pane.innerHTML = `<div class="empty"><h3>Could not load ${esc(path)}</h3><p>${esc(e.message)}</p></div>`; }
+}
+
+async function docSearch(q) {
+  const hits = [];
+  for (const d of S.docs || []) {
+    let text;
+    try { text = await docBody(d.path); } catch { continue; }
+    const lines = text.split('\n');
+    const found = [];
+    lines.forEach((l, i) => { if (l.toLowerCase().includes(q) && found.length < 4) found.push({ n: i + 1, l: l.trim().slice(0, 160) }); });
+    if (found.length) hits.push({ doc: d, found, total: lines.filter(l => l.toLowerCase().includes(q)).length });
+  }
+  return hits;
+}
+
+function renderDocs() {
+  const docs = S.docs || [];
+  if (!S.token) {
+    $('#docsWrap').innerHTML = `<div class="empty"><svg><use href="#i-doc"/></svg><h3>Connect GitHub first</h3>
+      <p>This reads the markdown files at the root of the active repository so you can keep ARCHITECTURE, DESIGN and PALETTE open beside the board.</p></div>`;
+    return;
+  }
+  $('#docsWrap').innerHTML = `
+    <div class="docs">
+      <aside class="docs-nav">
+        <div class="search docs-search"><svg><use href="#i-search"/></svg>
+          <input id="docQ" type="search" placeholder="Search all docs…" value="${attr(S.docQ || '')}"></div>
+        <div class="docs-list">${docs.length ? docs.map(d => `
+          <button class="docs-item ${S.doc === d.path ? 'is-on' : ''}" data-doc="${attr(d.path)}">
+            <span>${esc(d.name)}</span><i>${(d.size || 0) >= 1024 ? Math.round(d.size / 1024) + 'k' : '<1k'}</i>
+          </button>`).join('') : '<div class="hint" style="padding:10px">No markdown at the repo root.</div>'}</div>
+      </aside>
+      <article class="docs-body md" id="docPane">${
+        S.doc ? '<div class="skel" style="height:60vh"></div>'
+              : `<div class="empty"><svg><use href="#i-doc"/></svg><h3>${docs.length} documents</h3>
+                 <p>Pick one, or search across all of them at once. Hex codes render as swatches — click to copy.</p></div>`}</article>
+    </div>`;
+
+  let t;
+  const q = $('#docQ');
+  if (q) q.addEventListener('input', e => {
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      S.docQ = e.target.value;
+      const term = S.docQ.trim().toLowerCase();
+      const pane = $('#docPane');
+      if (!term) { S.doc ? openDoc(S.doc) : renderDocs(); return; }
+      pane.innerHTML = '<div class="skel" style="height:120px"></div>';
+      const hits = await docSearch(term);
+      pane.innerHTML = hits.length ? `<div class="doc-hits">${hits.map(h => `
+        <div class="doc-hit">
+          <button class="doc-hit-head" data-doc="${attr(h.doc.path)}">${esc(h.doc.name)}<i>${h.total} match${h.total === 1 ? '' : 'es'}</i></button>
+          ${h.found.map(f => `<div class="doc-hit-line"><span class="mono">${f.n}</span>${esc(f.l)}</div>`).join('')}
+        </div>`).join('')}</div>`
+        : '<div class="empty"><p>Nothing found.</p></div>';
+    }, 240);
+  });
+}
+
+/* ---------- import loose notes as tasks ---------- */
+/* Turn a loose notes file into tasks.
+   Three shapes, in priority order:
+     1. a block of bullets  -> one task per bullet
+     2. a short line ending in ':' -> a heading; the NEXT block is its body
+     3. anything else       -> first line is the title, the rest the body */
+// bullets under a heading are subtasks — make them tickable
+function asChecklist(body) {
+  const lines = body.split('\n');
+  const bullets = lines.filter(l => /^\s*[-*+]\s+/.test(l));
+  if (bullets.length < 2 || bullets.length !== lines.filter(l => l.trim()).length) return body;
+  return lines.map(l => l.replace(/^(\s*)[-*+]\s+(?!\[[ xX]\])/, '$1- [ ] ')).join('\n');
+}
+
+function parseNotes(text) {
+  const blocks = String(text || '').replace(/\r\n/g, '\n').split(/\n\s*\n/)
+    .map(b => b.trim()).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const lines = blocks[i].split('\n').map(l => l.trim()).filter(Boolean);
+
+    if (lines.length > 1 && lines.every(l => /^[-*+]\s+/.test(l))) {
+      for (const l of lines) out.push({ title: l.replace(/^[-*+]\s+/, ''), body: '' });
+      continue;
+    }
+
+    const head = lines[0].replace(/^[-*#\s]+/, '').trim();
+    const isHeading = lines.length === 1 && head.length <= 80 && /:$/.test(head);
+    if (isHeading && blocks[i + 1]) {
+      out.push({ title: head.replace(/:$/, '').trim(), body: asChecklist(blocks[++i].trim()) });
+      continue;
+    }
+    out.push({ title: head.replace(/:$/, '').trim(), body: lines.slice(1).join('\n').trim() });
+  }
+  return out.filter(b => b.title);
+}
+
+function openImport() {
+  const m = openModal(`
+    ${modalHead('Import tasks from a file')}
+    <div class="modal-body">
+      <div class="field">
+        <label>File in ${esc(repoKey())}</label>
+        <div class="row"><input class="input" id="impPath" value="ideas.txt" style="flex:1">
+          <button class="btn btn-ghost btn-sm" id="impLoad">Read file</button></div>
+        <span class="hint">Blocks separated by a blank line become one task each — first line is the title, the rest becomes the description.</span>
+      </div>
+      <div id="impOut"></div>
+    </div>
+    <div class="modal-foot"><span class="spacer"></span>
+      <button class="btn btn-ghost" data-act="close">Cancel</button>
+      <button class="btn btn-primary" id="impGo" disabled><svg><use href="#i-plus"/></svg>Create selected</button></div>`, { wide: true });
+
+  let blocks = [];
+  $('#impLoad', m).onclick = async () => {
+    const out = $('#impOut', m);
+    out.innerHTML = '<div class="skel" style="height:80px"></div>';
+    try {
+      const { owner, repo } = repoNow();
+      const r = await ghGet(`/repos/${owner}/${repo}/contents/${$('#impPath', m).value.trim()}`);
+      blocks = parseNotes(b64dec(r.content));
+      out.innerHTML = blocks.length ? `
+        <div class="micro" style="margin-bottom:8px">${blocks.length} block(s) found</div>
+        <div class="imp-list">${blocks.map((b, i) => `
+          <label class="imp-row">
+            <input type="checkbox" checked data-imp="${i}">
+            <div><b>${esc(b.title)}</b>${b.body ? `<span>${esc(b.body.slice(0, 180))}</span>` : ''}</div>
+          </label>`).join('')}</div>
+        <div class="field" style="margin-top:13px"><label>Into column</label>
+          <select class="select" id="impCol" style="max-width:200px">${S.columns.map(c =>
+            `<option value="${c.id}" ${c.id === 'todo' ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>`
+        : '<div class="callout info">No blocks found in that file.</div>';
+      $('#impGo', m).disabled = !blocks.length;
+    } catch (e) {
+      out.innerHTML = `<div class="callout warn">${esc(e.status === 404 ? 'No such file in this repository.' : e.message)}</div>`;
+      $('#impGo', m).disabled = true;
+    }
+  };
+
+  $('#impGo', m).onclick = async () => {
+    const picked = $$('[data-imp]', m).filter(c => c.checked).map(c => blocks[+c.dataset.imp]);
+    const col = ($('#impCol', m) || {}).value || 'todo';
+    const btn = $('#impGo', m); btn.disabled = true;
+    let made = 0;
+    for (const b of picked) {
+      btn.textContent = `Creating ${made + 1}/${picked.length}…`;
+      try { await createTask({ title: b.title, body: b.body, col }); made++; }
+      catch (e) { toast(`${b.title}: ${e.message}`, 'err'); break; }
+    }
+    closeModal(); render(); paintCounts();
+    toast(`Imported ${made} task(s)`, 'ok');
+  };
+}
+
+/* ---------- devlog ---------- */
+function openDevlog() {
+  const build = days => {
+    const since = Date.now() - days * 864e5;
+    const done = S.issues.filter(i => i.closed_at && new Date(i.closed_at) >= since)
+                         .sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
+    const merged = S.prs.filter(p => p.merged_at && new Date(p.merged_at) >= since);
+    const wip = S.issues.filter(i => i.state === 'open' && colOf(i) === 'progress');
+    const d = new Date();
+    let out = `## Devlog — ${d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}\n\n`;
+    out += `_Last ${days} days on ${repoKey()}._\n\n`;
+    if (done.length) out += `### Shipped\n\n${done.map(i => `- ${i.title} (#${i.number})`).join('\n')}\n\n`;
+    if (merged.length) out += `### Merged\n\n${merged.map(p => `- ${p.title} (#${p.number})`).join('\n')}\n\n`;
+    if (wip.length) out += `### In flight\n\n${wip.map(i => `- ${i.title} (#${i.number})`).join('\n')}\n\n`;
+    if (!done.length && !merged.length && !wip.length) out += `_Nothing closed in this window._\n`;
+    return out;
+  };
+
+  const m = openModal(`
+    ${modalHead('Devlog')}
+    <div class="modal-body">
+      <div class="row" style="margin-bottom:12px">
+        ${[7, 14, 30, 90].map(d => `<button class="chip ${d === 14 ? 'is-on' : ''}" data-days="${d}">${d} days</button>`).join('')}
+      </div>
+      <textarea class="textarea" id="dlOut" style="min-height:320px">${esc(build(14))}</textarea>
+    </div>
+    <div class="modal-foot"><span class="spacer"></span>
+      <button class="btn btn-ghost" data-act="close">Close</button>
+      <button class="btn btn-primary" id="dlCopy"><svg><use href="#i-copy"/></svg>Copy markdown</button></div>`, { wide: true });
+
+  $$('[data-days]', m).forEach(b => b.onclick = () => {
+    $$('[data-days]', m).forEach(x => x.classList.toggle('is-on', x === b));
+    $('#dlOut', m).value = build(+b.dataset.days);
+  });
+  $('#dlCopy', m).onclick = async () => {
+    try { await navigator.clipboard.writeText($('#dlOut', m).value); toast('Copied', 'ok'); }
+    catch { $('#dlOut', m).select(); toast('Press ⌘C to copy'); }
+  };
+}
+
 })();
