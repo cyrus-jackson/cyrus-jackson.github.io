@@ -47,6 +47,7 @@ const S = {
   issues  : [],
   prs     : [],
   labels  : [],
+  milestones: [],
   checks  : {},
   view    : 'board',
   q       : '',
@@ -299,15 +300,29 @@ function applyTheme(id) {
   document.documentElement.dataset.theme = id;
   store.set('theme', id);
   $$('.theme-dot').forEach(d => d.classList.toggle('is-active', d.dataset.theme === id));
+  paintThemeName(id);
   if (S.view === 'board') renderBoard();
   if (S.view === 'prs') renderPRs();
 }
 function paintThemes() {
   $('#themeDots').innerHTML = THEMES.map(t =>
     `<button class="theme-dot" data-theme="${t.id}" title="${esc(t.name)}" aria-label="${esc(t.name)} theme"
-       style="background:linear-gradient(135deg, ${t.sw[0]} 0 52%, ${t.sw[1]} 52% 100%)"></button>`).join('');
+       style="background:linear-gradient(135deg, ${t.sw[0]} 0 52%, ${t.sw[1]} 52% 100%)"></button>`).join('')
+    + '<span class="theme-name" id="themeName"></span>';
   const cur = store.get('theme', 'neon');
   $$('.theme-dot').forEach(d => d.classList.toggle('is-active', d.dataset.theme === cur));
+  paintThemeName(cur);
+  const dots = $('#themeDots');
+  dots.addEventListener('pointerover', e => {
+    const d = e.target.closest('.theme-dot');
+    if (d) paintThemeName(d.dataset.theme);
+  });
+  dots.addEventListener('pointerleave', () => paintThemeName(document.documentElement.dataset.theme));
+}
+function paintThemeName(id) {
+  const el = $('#themeName'); if (!el) return;
+  const t = THEMES.find(x => x.id === id);
+  el.textContent = t ? t.name : '';
 }
 
 /* ---------- sidebar chrome ---------- */
@@ -334,6 +349,7 @@ function paintCounts() {
   $('#cntBoard').textContent = open || '';
   $('#cntPrs').textContent = S.prs.filter(p => p.state === 'open').length || '';
   $('#cntInsp').textContent = S.inspiration.length || '';
+  $('#cntMs').textContent = S.milestones.filter(m => m.state === 'open').length || '';
 }
 
 /* ============================================================
@@ -372,6 +388,7 @@ function listPaths() {
   const { owner, repo } = repoNow();
   return {
     issues: `/repos/${owner}/${repo}/issues?state=all&per_page=100&sort=updated&direction=desc`,
+    milestones: `/repos/${owner}/${repo}/milestones?state=all&per_page=100&sort=due_on`,
     pulls:  `/repos/${owner}/${repo}/pulls?state=all&per_page=100&sort=updated&direction=desc`,
     labels: `/repos/${owner}/${repo}/labels?per_page=100`,
   };
@@ -382,11 +399,13 @@ function listPaths() {
 function hydrateFromCache() {
   if (!S.token) return false;
   const u = listPaths();
-  const iss = httpCache[API + u.issues], pr = httpCache[API + u.pulls], lb = httpCache[API + u.labels];
+  const iss = httpCache[API + u.issues], pr = httpCache[API + u.pulls];
+  const lb = httpCache[API + u.labels], ms = httpCache[API + u.milestones];
   if (!iss || !Array.isArray(iss.data)) return false;
   S.issues = iss.data.filter(i => !i.pull_request);
   S.prs    = pr && Array.isArray(pr.data) ? pr.data : [];
   S.labels = lb && Array.isArray(lb.data) ? lb.data : [];
+  S.milestones = ms && Array.isArray(ms.data) ? ms.data : [];
   S.demo = false;
   return true;
 }
@@ -401,15 +420,17 @@ async function loadAll({ quiet = false, force = false } = {}) {
   setLoading(true);
   try {
     const u = listPaths();
-    const [issues, prs, labels] = await Promise.all([
+    const [issues, prs, labels, milestones] = await Promise.all([
       ghAll(u.issues, 3),
       ghAll(u.pulls, 2),
       ghGet(u.labels).catch(() => []),
+      ghGet(u.milestones).catch(() => []),
     ]);
     S.demo = false;
     S.issues = issues.filter(i => !i.pull_request);
     S.prs    = prs || [];
     S.labels = labels || [];
+    S.milestones = milestones || [];
     $('#demoBanner')?.remove();
     S.lastLoad = { key: repoKey(), t: Date.now() };
     S.docs = null; S.docCache = {}; S.doc = null;
@@ -500,6 +521,7 @@ function cardHTML(i, links) {
          <svg><use href="#i-pr"/></svg>#${p.number}</a>`).join('')}</div>` : ''}
     <div class="card-foot">
       ${i.comments ? `<span title="comments">${i.comments} 💬</span>` : ''}
+      ${i.milestone ? `<span class="card-ms" title="Milestone"><svg><use href="#i-flag"/></svg>${esc(i.milestone.title)}</span>` : ''}
       <span class="spacer"></span>
       <span>${ago(i.updated_at)}</span>
       ${i.assignee ? `<img class="avatar" src="${attr(i.assignee.avatar_url)}" alt="${attr(i.assignee.login)}" title="${attr(i.assignee.login)}">` : ''}
@@ -780,6 +802,14 @@ async function openTask(num) {
           <select class="select" id="tCol">${S.columns.map(c =>
             `<option value="${c.id}" ${c.id === cur ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
         </div>
+        <div class="field" style="margin:0;flex:0 0 200px">
+          <label>Milestone</label>
+          <select class="select" id="tMs">
+            <option value="">None</option>
+            ${S.milestones.filter(x => x.state === 'open' || (issue.milestone && x.number === issue.milestone.number))
+              .map(x => `<option value="${x.number}" ${issue.milestone && issue.milestone.number === x.number ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}
+          </select>
+        </div>
         <div class="field" style="margin:0;flex:1;min-width:200px">
           <label>Labels</label>
           <div class="row" id="tLabels" style="gap:5px">${
@@ -877,6 +907,9 @@ async function openTask(num) {
     const toCol = $('#tCol', m).value;
     const col = S.columns.find(c => c.id === toCol);
     const payload = { title: $('#tTitle', m).value.trim() || issue.title, body: body.value, labels: [...chosen, col.label] };
+    const msSel = $('#tMs', m).value;
+    const curMs = issue.milestone ? String(issue.milestone.number) : '';
+    if (msSel !== curMs) payload.milestone = msSel ? +msSel : null;
     if (S.closeOnDone) payload.state = toCol === 'done' ? 'closed' : 'open';
     if (S.demo) {
       Object.assign(issue, payload, { labels: payload.labels.map(n => ({ name: n, color: '5a6470' })), updated_at: new Date().toISOString() });
@@ -1312,7 +1345,7 @@ function loadDemo() {
 }
 
 /* ---------- router ---------- */
-const TITLES = { board: 'Board', prs: 'Pull Requests', inspiration: 'Inspiration', docs: 'Design Docs', progress: 'Progress', settings: 'Settings' };
+const TITLES = { board: 'Board', prs: 'Pull Requests', milestones: 'Milestones', inspiration: 'Inspiration', docs: 'Design Docs', progress: 'Progress', settings: 'Settings' };
 
 function render() {
   $('#viewTitle').textContent = TITLES[S.view] || 'Board';
@@ -1328,6 +1361,7 @@ function render() {
     });
   }
   else if (S.view === 'prs') { renderPRs(); loadChecks(); }
+  else if (S.view === 'milestones') renderMilestones();
   else if (S.view === 'inspiration') renderInspiration();
   else if (S.view === 'docs') {
     renderDocs();
@@ -1409,6 +1443,9 @@ function wire() {
 
     if (act === 'close') closeModal();
     else if (act === 'import') openImport();
+    else if (act === 'ms-new') openMilestoneEdit(null);
+    else if (act === 'ms-edit') openMilestoneEdit(+el.dataset.ms);
+    else if (act === 'ms-open') openTask(+el.dataset.num);
     else if (act === 'devlog') openDevlog();
     else if (act === 'capture') openCapture();
     else if (act === 'goto-settings') go('settings');
@@ -1578,6 +1615,11 @@ function paletteItems() {
   push('Action', 'Add reference', '', () => openInspEdit(null), 'i-spark');
   push('Action', 'Import tasks from a repo file', '', () => openImport(), 'i-doc');
   push('Action', 'Generate devlog', '', () => openDevlog(), 'i-doc');
+  push('Action', 'New milestone', '', () => { go('milestones'); openMilestoneEdit(null); }, 'i-flag');
+  for (const x of S.milestones.filter(m => m.state === 'open')) {
+    const st = msStats(x);
+    push('Milestone', `${x.title} — ${st.pct}%`, `${st.remaining} left`, () => go('milestones'), 'i-flag');
+  }
 
   for (const [v, t] of Object.entries(TITLES)) push('Go to', t, '', () => go(v), 'i-board');
   for (const t of THEMES) push('Theme', t.name, '', () => applyTheme(t.id), 'i-spark');
@@ -1640,6 +1682,212 @@ function openPalette() {
 
   draw();
   setTimeout(() => input.focus(), 30);
+}
+
+/* ---------- milestones ---------- */
+function msStats(ms) {
+  const mine = S.issues.filter(i => i.milestone && i.milestone.number === ms.number);
+  const byCol = {};
+  S.columns.forEach(c => byCol[c.id] = []);
+  for (const i of mine) (byCol[colOf(i)] = byCol[colOf(i)] || []).push(i);
+  const done = (byCol.done || []).length;
+  const total = mine.length;
+  // GitHub's own counts include PRs; ours are issues only. Show the gap if any.
+  const apiTotal = (ms.open_issues || 0) + (ms.closed_issues || 0);
+  return { mine, byCol, done, total, apiTotal, remaining: total - done, pct: total ? Math.round(done / total * 100) : 0 };
+}
+
+function msDue(ms) {
+  if (!ms.due_on) return { text: 'No due date', tone: 'none' };
+  const d = new Date(ms.due_on);
+  const days = Math.ceil((d - Date.now()) / 864e5);
+  const on = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  if (days < 0)   return { text: `Overdue by ${-days} day${days === -1 ? '' : 's'}`, tone: 'bad', days, on };
+  if (days === 0) return { text: 'Due today', tone: 'warn', days, on };
+  if (days <= 14) return { text: `${days} day${days === 1 ? '' : 's'} left`, tone: days <= 7 ? 'warn' : 'ok', days, on };
+  return { text: `Due ${on}`, tone: 'ok', days, on };
+}
+
+// Rough pace projection. Deliberately silent until there is enough history
+// to say anything honest — three closed tasks is the floor.
+function msPace(st) {
+  const closed = st.mine.filter(i => i.closed_at);
+  if (closed.length < 3 || !st.remaining) return null;
+  const first = Math.min(...closed.map(i => +new Date(i.closed_at)));
+  const weeks = Math.max(0.5, (Date.now() - first) / 6048e5);
+  const rate = closed.length / weeks;
+  if (rate <= 0) return null;
+  const weeksLeft = st.remaining / rate;
+  return { rate, weeksLeft, eta: new Date(Date.now() + weeksLeft * 6048e5) };
+}
+
+function msCardHTML(ms) {
+  const st = msStats(ms), due = msDue(ms), pace = msPace(st);
+  const open = S.columns.filter(c => c.id !== 'done');
+  const verdict = (() => {
+    if (!pace || !due.days) return null;
+    if (due.tone === 'none') return null;
+    const slack = due.days - pace.weeksLeft * 7;
+    if (slack >= 3)  return { tone: 'ok',   text: `On track — about ${Math.round(pace.weeksLeft * 7)} days of work left, ${due.days} days available` };
+    if (slack >= -3) return { tone: 'warn', text: `Tight — roughly ${Math.round(pace.weeksLeft * 7)} days of work against ${due.days} days left` };
+    return { tone: 'bad', text: `Behind — about ${Math.round(-slack)} days short at ${pace.rate.toFixed(1)} tasks/week` };
+  })();
+
+  return `
+  <section class="ms ${ms.state === 'closed' ? 'is-closed' : ''}">
+    <header class="ms-head">
+      <div class="ms-title">
+        <h3>${esc(ms.title)}</h3>
+        ${ms.state === 'closed' ? '<span class="pr-pill s-done">closed</span>' : ''}
+        <span class="ms-due t-${due.tone}">${esc(due.text)}</span>
+      </div>
+      <div class="ms-actions">
+        <span class="ms-frac"><b>${st.done}</b>/${st.total}</span>
+        <button class="icon-btn" data-act="ms-edit" data-ms="${ms.number}" title="Edit milestone"><svg><use href="#i-cog"/></svg></button>
+        <a class="icon-btn" href="${attr(ms.html_url || '#')}" target="_blank" rel="noopener" title="Open on GitHub"><svg><use href="#i-external"/></svg></a>
+      </div>
+    </header>
+
+    <div class="ms-bar" role="progressbar" aria-valuenow="${st.pct}" aria-valuemin="0" aria-valuemax="100"
+         aria-label="${esc(ms.title)}: ${st.done} of ${st.total} done">
+      <i class="seg done" style="width:${st.total ? st.done / st.total * 100 : 0}%" title="Done: ${st.done}"></i>
+      ${[...open].reverse().map(c => {
+        const n = (st.byCol[c.id] || []).length;
+        return n ? `<i class="seg" style="width:${n / Math.max(st.total, 1) * 100}%;background:${esc(c.color)}" title="${esc(c.name)}: ${n}"></i>` : '';
+      }).join('')}
+      <span class="ms-pct">${st.pct}%</span>
+    </div>
+
+    <div class="ms-legend">
+      ${S.columns.map(c => {
+        const n = c.id === 'done' ? st.done : (st.byCol[c.id] || []).length;
+        return `<span class="ms-chip"><i style="background:${esc(c.color)}"></i>${esc(c.name)} <b>${n}</b></span>`;
+      }).join('')}
+      ${st.apiTotal > st.total ? `<span class="ms-chip warnish">showing ${st.total} of ${st.apiTotal} — the rest are pull requests or beyond the fetch limit</span>` : ''}
+    </div>
+
+    ${verdict ? `<div class="ms-verdict t-${verdict.tone}">${esc(verdict.text)}</div>` : ''}
+    ${ms.description ? `<p class="ms-desc">${esc(ms.description)}</p>` : ''}
+
+    ${st.remaining ? `
+      <div class="ms-todo">
+        <div class="micro">What's left — ${st.remaining} task${st.remaining === 1 ? '' : 's'}</div>
+        ${['review', 'progress', 'todo'].map(id => {
+          const col = S.columns.find(c => c.id === id); if (!col) return '';
+          const list = st.byCol[id] || []; if (!list.length) return '';
+          return `<div class="ms-group">
+            <div class="ms-group-head"><i style="background:${esc(col.color)}"></i>${esc(col.name)}<b>${list.length}</b></div>
+            ${list.map(i => `<button class="ms-task" data-act="ms-open" data-num="${i.number}">
+                <span class="mono">#${i.number}</span><span class="t">${esc(i.title)}</span>
+                ${taskProgress(i.body) ? `<span class="ms-sub">${taskProgress(i.body).done}/${taskProgress(i.body).total}</span>` : ''}
+              </button>`).join('')}
+          </div>`;
+        }).join('')}
+      </div>`
+      : `<div class="ms-clear">${st.total ? 'Everything in this milestone is done.' : 'No tasks assigned yet — pick some from Unassigned below.'}</div>`}
+  </section>`;
+}
+
+function renderMilestones() {
+  if (!S.token) {
+    $('#msWrap').innerHTML = `<div class="empty"><svg><use href="#i-flag"/></svg><h3>Connect GitHub first</h3>
+      <p>Milestones are read from the repository, so this mirrors whatever you already have on github.com.</p></div>`;
+    return;
+  }
+  const open = S.milestones.filter(m => m.state === 'open');
+  const closed = S.milestones.filter(m => m.state === 'closed');
+  const loose = S.issues.filter(i => !i.milestone && i.state === 'open');
+
+  $('#msWrap').innerHTML = `
+    <div class="ms-wrap">
+      <div class="row" style="justify-content:space-between">
+        <div class="micro">${open.length} open milestone${open.length === 1 ? '' : 's'}</div>
+        <button class="btn btn-primary btn-sm" data-act="ms-new"><svg><use href="#i-plus"/></svg>New milestone</button>
+      </div>
+
+      ${open.length ? open.map(msCardHTML).join('')
+        : `<div class="empty"><svg><use href="#i-flag"/></svg><h3>No open milestones</h3>
+           <p>A milestone is just a named bucket with a due date. Make one, drop tasks into it, and this page shows how far through it you are and exactly what is left.</p>
+           <button class="btn btn-primary" data-act="ms-new"><svg><use href="#i-plus"/></svg>Create the first one</button></div>`}
+
+      ${loose.length ? `
+        <section class="ms">
+          <header class="ms-head"><div class="ms-title"><h3>Unassigned</h3>
+            <span class="ms-due t-none">${loose.length} open task${loose.length === 1 ? '' : 's'} in no milestone</span></div></header>
+          <div class="ms-todo">
+            ${loose.slice(0, 40).map(i => `
+              <div class="ms-task ms-loose">
+                <span class="mono">#${i.number}</span>
+                <span class="t" data-act="ms-open" data-num="${i.number}">${esc(i.title)}</span>
+                <select class="select ms-assign" data-assign="${i.number}">
+                  <option value="">Assign to…</option>
+                  ${open.map(m => `<option value="${m.number}">${esc(m.title)}</option>`).join('')}
+                </select>
+              </div>`).join('')}
+          </div>
+        </section>` : ''}
+
+      ${closed.length ? `<details class="ms-closed-wrap"><summary>${closed.length} closed milestone${closed.length === 1 ? '' : 's'}</summary>
+        ${closed.map(msCardHTML).join('')}</details>` : ''}
+    </div>`;
+
+  $$('.ms-assign').forEach(sel => sel.onchange = () => assignMilestone(+sel.dataset.assign, sel.value ? +sel.value : null));
+}
+
+async function assignMilestone(num, msNumber) {
+  const issue = S.issues.find(i => i.number === num);
+  if (!issue) return;
+  if (S.demo) {
+    issue.milestone = msNumber ? S.milestones.find(m => m.number === msNumber) : null;
+    renderMilestones(); return;
+  }
+  try {
+    const { owner, repo } = repoNow();
+    const r = await gh(`/repos/${owner}/${repo}/issues/${num}`, { method: 'PATCH', body: { milestone: msNumber } });
+    Object.assign(issue, r.data);
+    toast(msNumber ? `#${num} → ${S.milestones.find(m => m.number === msNumber).title}` : `#${num} removed from milestone`, 'ok');
+    renderMilestones(); renderBoard();
+  } catch (e) { toast(e.message, 'err'); renderMilestones(); }
+}
+
+function openMilestoneEdit(number) {
+  const ms = S.milestones.find(m => m.number === number);
+  const isNew = !ms;
+  const due = ms && ms.due_on ? new Date(ms.due_on).toISOString().slice(0, 10) : '';
+  const m = openModal(`
+    ${modalHead(isNew ? 'New milestone' : 'Edit milestone')}
+    <div class="modal-body">
+      <div class="field"><label>Title</label><input class="input" id="msT" value="${attr(ms ? ms.title : '')}" placeholder="Vertical slice"></div>
+      <div class="row" style="margin-bottom:13px">
+        <div class="field" style="margin:0;flex:0 0 190px"><label>Due date</label><input class="input" id="msD" type="date" value="${attr(due)}"></div>
+        <div class="field" style="margin:0;flex:0 0 160px"><label>State</label>
+          <select class="select" id="msS">
+            <option value="open" ${!ms || ms.state === 'open' ? 'selected' : ''}>Open</option>
+            <option value="closed" ${ms && ms.state === 'closed' ? 'selected' : ''}>Closed</option>
+          </select></div>
+      </div>
+      <div class="field"><label>Description</label><textarea class="textarea" id="msB" style="min-height:90px;font-family:var(--font);font-size:13px">${esc(ms ? (ms.description || '') : '')}</textarea></div>
+    </div>
+    <div class="modal-foot"><span class="spacer"></span>
+      <button class="btn btn-ghost" data-act="close">Cancel</button>
+      <button class="btn btn-primary" id="msSave"><svg><use href="#i-check"/></svg>${isNew ? 'Create' : 'Save'}</button></div>`);
+
+  $('#msSave', m).onclick = async () => {
+    const title = $('#msT', m).value.trim();
+    if (!title) { toast('A title is required', 'err'); return; }
+    const body = { title, state: $('#msS', m).value, description: $('#msB', m).value };
+    const d = $('#msD', m).value;
+    if (d) body.due_on = new Date(d + 'T23:59:59Z').toISOString();
+    const { owner, repo } = repoNow();
+    try {
+      const r = isNew
+        ? await gh(`/repos/${owner}/${repo}/milestones`, { method: 'POST', body })
+        : await gh(`/repos/${owner}/${repo}/milestones/${number}`, { method: 'PATCH', body });
+      if (isNew) S.milestones.push(r.data); else Object.assign(ms, r.data);
+      closeModal(); paintCounts(); renderMilestones();
+      toast(isNew ? 'Milestone created' : 'Milestone saved', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  };
 }
 
 /* ---------- design docs reader ---------- */

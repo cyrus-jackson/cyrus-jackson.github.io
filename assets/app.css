@@ -717,3 +717,94 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
   .docs-body { padding: 18px 16px 50px; }
   .modal-root.top { padding-top: 6vh; }
 }
+
+/* ---------- 15. MILESTONES ---------- */
+
+.ms-wrap { padding: 18px 24px 40px; display: flex; flex-direction: column; gap: 16px; max-width: 940px; }
+
+.ms {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px 18px 15px;
+  display: flex; flex-direction: column; gap: 12px;
+  box-shadow: var(--shadow-1);
+}
+.ms.is-closed { opacity: .72; }
+.ms-head { display: flex; align-items: flex-start; gap: 12px; }
+.ms-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.ms-title h3 { font-size: 15.5px; letter-spacing: -.015em; }
+.ms-due { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 20px; border: 1px solid; }
+.t-ok   { color: var(--ok);       border-color: color-mix(in srgb, var(--ok) 38%, transparent);       background: color-mix(in srgb, var(--ok) 11%, transparent); }
+.t-warn { color: var(--warn);     border-color: color-mix(in srgb, var(--warn) 40%, transparent);     background: color-mix(in srgb, var(--warn) 11%, transparent); }
+.t-bad  { color: var(--bad);      border-color: color-mix(in srgb, var(--bad) 40%, transparent);      background: color-mix(in srgb, var(--bad) 11%, transparent); }
+.t-none { color: var(--fg-faint); border-color: var(--line-2);                                        background: var(--sunken); }
+.ms-actions { display: flex; align-items: center; gap: 7px; }
+.ms-frac { font-size: 12.5px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.ms-frac b { font-size: 16px; color: var(--fg); font-weight: 660; }
+
+.ms-bar {
+  position: relative; height: 26px; border-radius: 8px;
+  background: var(--sunken); border: 1px solid var(--line);
+  overflow: hidden; display: flex;
+}
+.ms-bar .seg { display: block; height: 100%; opacity: .5; transition: width .45s var(--ease); }
+.ms-bar .seg + .seg { border-left: 1px solid color-mix(in srgb, var(--bg) 55%, transparent); }
+.ms-bar .seg.done { opacity: 1; background: linear-gradient(90deg, var(--col-4), color-mix(in srgb, var(--col-4) 70%, var(--accent))); }
+.ms-pct {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 11.5px; font-weight: 700; letter-spacing: .03em;
+  color: var(--fg); text-shadow: 0 1px 2px var(--bg), 0 0 6px var(--bg);
+}
+
+.ms-legend { display: flex; flex-wrap: wrap; gap: 7px; }
+.ms-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--fg-dim);
+  padding: 2px 9px; border: 1px solid var(--line); border-radius: 20px; background: var(--sunken);
+}
+.ms-chip i { width: 8px; height: 8px; border-radius: 50%; }
+.ms-chip b { color: var(--fg); font-weight: 650; }
+.ms-chip.warnish { color: var(--fg-faint); border-style: dashed; }
+
+.ms-verdict { font-size: 12.5px; font-weight: 550; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid; }
+.ms-desc { margin: 0; font-size: 13px; color: var(--fg-dim); line-height: 1.6; }
+
+.ms-todo { display: flex; flex-direction: column; gap: 9px; border-top: 1px solid var(--line); padding-top: 13px; }
+.ms-group { display: flex; flex-direction: column; gap: 3px; }
+.ms-group-head { display: flex; align-items: center; gap: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-faint); font-weight: 650; margin-bottom: 3px; }
+.ms-group-head i { width: 7px; height: 7px; border-radius: 50%; }
+.ms-group-head b { color: var(--fg-dim); }
+.ms-task {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 7px 10px; border-radius: var(--radius-xs);
+  font-size: 13px; color: var(--fg-dim);
+  transition: background .14s var(--ease), color .14s var(--ease);
+}
+.ms-task:hover { background: var(--surface-2); color: var(--fg); }
+.ms-task .mono { color: var(--fg-faint); flex: 0 0 42px; }
+.ms-task .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-task .ms-sub { font-family: var(--mono); font-size: 11px; color: var(--fg-faint); }
+.ms-loose { cursor: default; }
+.ms-loose .t { cursor: pointer; }
+.ms-loose:hover { background: var(--surface-2); }
+.ms-assign { flex: 0 0 168px; padding: 5px 26px 5px 9px; font-size: 12px; background-size: 13px; }
+.ms-clear { font-size: 12.5px; color: var(--fg-faint); border-top: 1px solid var(--line); padding-top: 12px; }
+
+.ms-closed-wrap { display: flex; flex-direction: column; gap: 14px; }
+.ms-closed-wrap > summary { cursor: pointer; font-size: 12.5px; color: var(--fg-faint); padding: 8px 2px; font-weight: 600; }
+.ms-closed-wrap > summary:hover { color: var(--fg-dim); }
+
+.card-ms {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10.5px; color: var(--fg-faint);
+  max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.card-ms svg { width: 11px; height: 11px; flex: none; }
+
+/* the theme picker now says which theme it is */
+.theme-name { font-size: 11px; color: var(--fg-dim); font-weight: 600; width: 100%; margin-top: 2px; }
+
+@media (max-width: 900px) {
+  .ms-wrap { padding: 14px; }
+  .ms-assign { flex: 1 1 100%; }
+  .ms-loose { flex-wrap: wrap; }
+}

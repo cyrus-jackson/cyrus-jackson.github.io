@@ -7,6 +7,10 @@ A single-page project tracker that runs entirely in the browser and uses **GitHu
 - **Inspiration** — a customisable gallery of reference projects: link, image, tags, and a note on what exactly you want out of it. Synced as `data/inspiration.json` in this repo.
 - **Progress** — completed-per-week chart, column distribution, recent activity.
 - **Images** — drop an image into any task or reference. It gets committed to `data/uploads/` here and linked by raw URL.
+- **Milestones** — every milestone with a segmented progress bar (done, then what remains, split by column),
+  its due date read as urgency rather than a date, and an explicit *what's left* list grouped by where each
+  task actually sits. Unassigned tasks get a one-click dropdown to file them into a milestone. Milestones are
+  real GitHub milestones, so anything you set here shows up on github.com and vice versa.
 - **Design Docs** — the markdown at your repo root (ARCHITECTURE, DESIGN, PALETTE, CHARACTERS…) rendered
   in-app and searchable across every file at once. Hex codes render as colour swatches; click one to copy it.
 - **Six themes** — Kea Neon, Atompunk, Midnight, Terminal, Paper, Mist. Picker is bottom-left.
