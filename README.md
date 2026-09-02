@@ -7,6 +7,14 @@ A single-page project tracker that runs entirely in the browser and uses **GitHu
 - **Inspiration** — a customisable gallery of reference projects: link, image, tags, and a note on what exactly you want out of it. Synced as `data/inspiration.json` in this repo.
 - **Progress** — completed-per-week chart, column distribution, recent activity.
 - **Images** — drop an image into any task or reference. It gets committed to `data/uploads/` here and linked by raw URL.
+- **Ideas** — a home for unformed game thinking, stored as issues labelled `idea` and **deliberately hidden
+  from the board** so speculation never inflates the backlog. Each one still gets a number, comments and
+  history, so an idea can be developed for months before *Promote to task* swaps its label and it becomes real
+  work in a column and milestone.
+- **Assets** — every image committed to the repo, in a grid with a transparency checkerboard, folder filters
+  and a lightbox. Copy the raw URL or the markdown in one click, or push it straight to Inspiration. Private
+  repos work too: `raw.githubusercontent` refuses them, so those images are fetched through the API and
+  inlined instead.
 - **Milestones** — every milestone with a segmented progress bar (done, then what remains, split by column),
   its due date read as urgency rather than a date, and an explicit *what's left* list grouped by where each
   task actually sits. Unassigned tasks get a one-click dropdown to file them into a milestone. Milestones are
@@ -117,6 +125,10 @@ Each column maps to a label, so the board still reads correctly on github.com:
 | In Progress | `status:in-progress` |
 | In Review | `status:review` |
 | Done | `status:done` *(and the issue is closed)* |
+
+The board also filters to a single milestone, and any card sitting in In Progress or In Review with no
+activity for 10 days gets a quiet `idle 18d` badge. That reads *days since anything touched the issue*, not
+days spent in that column — GitHub bumps `updated_at` on any edit — so treat it as a nudge, not a stopwatch.
 
 Rename columns or remap labels in Settings. **Settings → Create these labels on GitHub** makes them
 for you in the active repo. An issue with no status label lands in the first column, so nothing gets lost.

@@ -18,6 +18,9 @@ const THEMES = [
   { id:'mist',     name:'Mist',      sw:['#eef2f8','#2563eb'] },
 ];
 
+const IDEA_LABEL = 'idea';
+const STALE_DAYS = 10;
+
 const DEFAULT_COLUMNS = [
   { id:'todo',     name:'Todo',        label:'status:todo',        color:'#7d8ca3' },
   { id:'progress', name:'In Progress', label:'status:in-progress', color:'#60dcec' },
@@ -52,6 +55,8 @@ const S = {
   view    : 'board',
   q       : '',
   filters : [],
+  msFilter: '',
+  assets  : null,
   rate    : null,
   lastLoad: null,
   checksLoaded: false,
@@ -350,6 +355,8 @@ function paintCounts() {
   $('#cntPrs').textContent = S.prs.filter(p => p.state === 'open').length || '';
   $('#cntInsp').textContent = S.inspiration.length || '';
   $('#cntMs').textContent = S.milestones.filter(m => m.state === 'open').length || '';
+  $('#cntIdeas').textContent = S.issues.filter(isIdea).length || '';
+  $('#cntAssets').textContent = (S.assetList || []).length || '';
 }
 
 /* ============================================================
@@ -374,6 +381,14 @@ function prLinks() {
     for (const n of nums) (map[n] = map[n] || []).push(p);
   }
   return map;
+}
+
+const isIdea = i => (i.labels || []).some(l => String(l.name || l).toLowerCase() === IDEA_LABEL);
+
+// Days since anything touched the issue. Not the same as days in this column —
+// any edit bumps updated_at — so it is labelled "idle", not "in progress for".
+function idleDays(i) {
+  return Math.floor((Date.now() - new Date(i.updated_at)) / 864e5);
 }
 
 const prState = p => p.draft ? 'draft' : p.merged_at ? 'merged' : p.state === 'closed' ? 'closed' : 'open';
@@ -433,7 +448,7 @@ async function loadAll({ quiet = false, force = false } = {}) {
     S.milestones = milestones || [];
     $('#demoBanner')?.remove();
     S.lastLoad = { key: repoKey(), t: Date.now() };
-    S.docs = null; S.docCache = {}; S.doc = null;
+    S.docs = null; S.docCache = {}; S.doc = null; S.assetList = null; S.assetDir = '';
     S.checksLoaded = false;
     if (!quiet) toast(`Loaded ${S.issues.length} tasks · ${S.prs.length} PRs`, 'ok');
     if (S.view === 'prs') loadChecks();
@@ -470,6 +485,9 @@ async function loadChecks() {
 function visibleIssues() {
   const q = S.q.trim().toLowerCase();
   return S.issues.filter(i => {
+    if (isIdea(i)) return false;
+    if (S.msFilter === 'none' && i.milestone) return false;
+    if (S.msFilter && S.msFilter !== 'none' && (!i.milestone || String(i.milestone.number) !== S.msFilter)) return false;
     if (q) {
       const hay = `#${i.number} ${i.title} ${i.body || ''} ${(i.labels||[]).map(l=>l.name||l).join(' ')}`.toLowerCase();
       if (!hay.includes(q)) return false;
@@ -489,12 +507,22 @@ function renderFilters() {
     const n = l.name || l; if (statusLabels.has(String(n).toLowerCase())) continue;
     used.set(n, l.color || '888888');
   }
-  const show = S.view === 'board' && used.size;
-  $('#filters').innerHTML = !show ? '' :
+  const openMs = S.milestones.filter(m => m.state === 'open');
+  const msPicker = (S.view === 'board' && openMs.length) ? `
+    <select class="select filter-ms" id="msFilter">
+      <option value="">All milestones</option>
+      ${openMs.map(m => `<option value="${m.number}" ${S.msFilter === String(m.number) ? 'selected' : ''}>${esc(m.title)}</option>`).join('')}
+      <option value="none" ${S.msFilter === 'none' ? 'selected' : ''}>No milestone</option>
+    </select>` : '';
+
+  const show = S.view === 'board' && (used.size || openMs.length);
+  $('#filters').innerHTML = !show ? '' : msPicker +
     [...used].slice(0, 14).map(([n, c]) =>
       `<button class="chip ${S.filters.includes(n) ? 'is-on' : ''}" data-act="filter" data-label="${attr(n)}">
          <i class="sw" style="background:#${esc(c)}"></i>${esc(n)}</button>`).join('')
     + (S.filters.length ? `<button class="chip" data-act="filter-clear">Clear</button>` : '');
+  const msf = $('#msFilter');
+  if (msf) msf.onchange = () => { S.msFilter = msf.value; renderBoard(); };
 }
 
 /* ---------- board ---------- */
@@ -520,6 +548,12 @@ function cardHTML(i, links) {
       `<a class="pr-pill s-${prState(p)}" href="${attr(p.html_url)}" target="_blank" rel="noopener" title="${attr(p.title)}">
          <svg><use href="#i-pr"/></svg>#${p.number}</a>`).join('')}</div>` : ''}
     <div class="card-foot">
+      ${(() => {
+        const d = idleDays(i);
+        const mid = ['progress', 'review'].includes(colOf(i));
+        return mid && d >= STALE_DAYS
+          ? `<span class="stale" title="No activity for ${d} days">idle ${d}d</span>` : '';
+      })()}
       ${i.comments ? `<span title="comments">${i.comments} 💬</span>` : ''}
       ${i.milestone ? `<span class="card-ms" title="Milestone"><svg><use href="#i-flag"/></svg>${esc(i.milestone.title)}</span>` : ''}
       <span class="spacer"></span>
@@ -1345,13 +1379,13 @@ function loadDemo() {
 }
 
 /* ---------- router ---------- */
-const TITLES = { board: 'Board', prs: 'Pull Requests', milestones: 'Milestones', inspiration: 'Inspiration', docs: 'Design Docs', progress: 'Progress', settings: 'Settings' };
+const TITLES = { board: 'Board', prs: 'Pull Requests', milestones: 'Milestones', ideas: 'Ideas', inspiration: 'Inspiration', assets: 'Assets', docs: 'Design Docs', progress: 'Progress', settings: 'Settings' };
 
 function render() {
   $('#viewTitle').textContent = TITLES[S.view] || 'Board';
   $$('.nav-item').forEach(b => b.classList.toggle('is-active', b.dataset.view === S.view));
   $$('.view').forEach(v => v.hidden = v.id !== 'view-' + S.view);
-  $('#search').placeholder = S.view === 'prs' ? 'Search pull requests…' : 'Search tasks…';
+  $('#search').placeholder = { prs: 'Search pull requests…', ideas: 'Search ideas…', assets: 'Search file paths…' }[S.view] || 'Search tasks…';
   renderFilters();
   if (S.view === 'board') {
     renderBoard();
@@ -1362,6 +1396,8 @@ function render() {
   }
   else if (S.view === 'prs') { renderPRs(); loadChecks(); }
   else if (S.view === 'milestones') renderMilestones();
+  else if (S.view === 'ideas') renderIdeas();
+  else if (S.view === 'assets') renderAssets();
   else if (S.view === 'inspiration') renderInspiration();
   else if (S.view === 'docs') {
     renderDocs();
@@ -1435,6 +1471,8 @@ function wire() {
       navigator.clipboard?.writeText(sw.dataset.hex).then(() => toast(`Copied ${sw.dataset.hex}`, 'ok')).catch(() => {});
       return;
     }
+    const asset = e.target.closest('.asset');
+    if (asset) { openAsset(asset.dataset.path); return; }
     const card = e.target.closest('.card');
     if (card && !e.target.closest('a,button') && Date.now() - (window.__dragEnd || 0) > 250) { openTask(+card.dataset.num); return; }
 
@@ -1446,6 +1484,11 @@ function wire() {
     else if (act === 'ms-new') openMilestoneEdit(null);
     else if (act === 'ms-edit') openMilestoneEdit(+el.dataset.ms);
     else if (act === 'ms-open') openTask(+el.dataset.num);
+    else if (act === 'idea-new') openIdeaNew();
+    else if (act === 'idea-open') openTask(+el.dataset.num);
+    else if (act === 'idea-promote') openPromote(+el.dataset.num);
+    else if (act === 'idea-tag') { S.ideaTag = el.dataset.tag; renderIdeas(); }
+    else if (act === 'asset-dir') { S.assetDir = el.dataset.dir; renderAssets(); }
     else if (act === 'devlog') openDevlog();
     else if (act === 'capture') openCapture();
     else if (act === 'goto-settings') go('settings');
@@ -1580,7 +1623,7 @@ function openCapture(seed = '') {
       <svg class="cap-icon"><use href="#i-bolt"/></svg>
       <input id="capIn" class="cap-in" placeholder="What's on your mind?" autocomplete="off" value="${attr(seed)}">
       <select id="capCol" class="select cap-col">${S.columns.map(c =>
-        `<option value="${c.id}" ${c.id === 'todo' ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+        `<option value="${c.id}" ${c.id === 'todo' ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="__idea">💡 Idea</option></select>
     </div>
     <div class="cap-hint">
       <b>Enter</b> file it &nbsp;·&nbsp; <b>Shift ↵</b> open the full editor &nbsp;·&nbsp; <b>Esc</b> cancel
@@ -1596,10 +1639,11 @@ function openCapture(seed = '') {
     if (e.shiftKey) { closeModal(); openNewTask($('#capCol', m).value, title); return; }
     e.preventDefault();
     input.disabled = true;
+    const where = $('#capCol', m).value;
     try {
-      const issue = await createTask({ title, col: $('#capCol', m).value });
+      const issue = where === '__idea' ? await createIdea(title, '') : await createTask({ title, col: where });
       closeModal(); render(); paintCounts();
-      toast(`Filed as #${issue.number}`, 'ok');
+      toast(where === '__idea' ? `Idea #${issue.number} saved` : `Filed as #${issue.number}`, 'ok');
     } catch (err) { input.disabled = false; toast(err.message, 'err'); }
   });
 }
@@ -1616,6 +1660,10 @@ function paletteItems() {
   push('Action', 'Import tasks from a repo file', '', () => openImport(), 'i-doc');
   push('Action', 'Generate devlog', '', () => openDevlog(), 'i-doc');
   push('Action', 'New milestone', '', () => { go('milestones'); openMilestoneEdit(null); }, 'i-flag');
+  push('Action', 'New idea', '', () => { go('ideas'); openIdeaNew(); }, 'i-bulb');
+  for (const i of S.issues.filter(isIdea).slice(0, 100)) {
+    push('Idea', `#${i.number} ${i.title}`, '', () => openTask(i.number), 'i-bulb');
+  }
   for (const x of S.milestones.filter(m => m.state === 'open')) {
     const st = msStats(x);
     push('Milestone', `${x.title} — ${st.pct}%`, `${st.remaining} left`, () => go('milestones'), 'i-flag');
@@ -1682,6 +1730,286 @@ function openPalette() {
 
   draw();
   setTimeout(() => input.focus(), 30);
+}
+
+/* ---------- asset browser ---------- */
+const IMG_RE = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
+
+async function loadAssets() {
+  if (!S.token) { S.assetList = []; return; }
+  const { owner, repo } = repoNow();
+  try {
+    const info = await ghGet(`/repos/${owner}/${repo}`);
+    const branch = info.default_branch || 'master';
+    S.assetPrivate = !!info.private;
+    S.assetBranch = branch;
+    const tree = await ghGet(`/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`);
+    S.assetTruncated = !!(tree && tree.truncated);
+    S.assetList = ((tree && tree.tree) || [])
+      .filter(n => n.type === 'blob' && IMG_RE.test(n.path))
+      .map(n => ({ path: n.path, size: n.size, sha: n.sha, dir: n.path.split('/').slice(0, -1).join('/') || '/', name: n.path.split('/').pop() }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+  } catch (e) { S.assetList = []; S.assetErr = e.message; }
+  paintCounts();
+}
+
+const rawUrl = a => {
+  const { owner, repo } = repoNow();
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${S.assetBranch || 'master'}/${a.path.split('/').map(encodeURIComponent).join('/')}`;
+};
+
+// Private repos will not serve raw.githubusercontent to an <img>, so fall back
+// to pulling the blob through the API and handing the tag a data: URL.
+async function hydrateAsset(img, path) {
+  try {
+    const { owner, repo } = repoNow();
+    const r = await ghGet(`/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(S.assetBranch || 'master')}`);
+    if (!r || !r.content) throw new Error('no content');
+    const ext = (path.split('.').pop() || 'png').toLowerCase();
+    const mime = ext === 'svg' ? 'image/svg+xml' : ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+    img.src = `data:${mime};base64,${r.content.replace(/\s/g, '')}`;
+    img.dataset.hydrated = '1';
+  } catch { img.closest('.asset').classList.add('is-broken'); }
+}
+
+function renderAssets() {
+  if (!S.token) {
+    $('#assetsWrap').innerHTML = `<div class="empty"><svg><use href="#i-grid"/></svg><h3>Connect GitHub first</h3>
+      <p>This browses every image committed to the active repository.</p></div>`;
+    return;
+  }
+  if (!S.assetList) {
+    $('#assetsWrap').innerHTML = '<div class="insp-grid">' + Array(8).fill('<div class="skel" style="height:170px"></div>').join('') + '</div>';
+    loadAssets().then(renderAssets);
+    return;
+  }
+  const q = S.q.trim().toLowerCase();
+  const dirs = [...new Set(S.assetList.map(a => a.dir))].sort();
+  const active = S.assetDir || '';
+  const items = S.assetList
+    .filter(a => !active || a.dir === active)
+    .filter(a => !q || a.path.toLowerCase().includes(q));
+
+  $('#assetsWrap').innerHTML = `
+    <div class="insp-head">
+      ${dirs.length > 1 ? `<div class="row" style="gap:6px;flex-wrap:wrap">
+        <button class="chip ${!active ? 'is-on' : ''}" data-act="asset-dir" data-dir="">All</button>
+        ${dirs.map(d => `<button class="chip ${active === d ? 'is-on' : ''}" data-act="asset-dir" data-dir="${attr(d)}">${esc(d)}</button>`).join('')}
+      </div>` : ''}
+      <span style="flex:1"></span>
+      <span style="font-size:11.5px;color:var(--fg-faint)">
+        ${items.length} image${items.length === 1 ? '' : 's'}${S.assetTruncated ? ' · tree truncated by GitHub' : ''}
+      </span>
+    </div>
+    ${items.length ? `<div class="asset-grid">${items.map(a => `
+      <figure class="asset" data-path="${attr(a.path)}">
+        <div class="asset-img"><img loading="lazy" alt="${attr(a.name)}" src="${attr(rawUrl(a))}" data-path="${attr(a.path)}"></div>
+        <figcaption>
+          <span class="asset-name" title="${attr(a.path)}">${esc(a.name)}</span>
+          <span class="asset-size">${a.size >= 1024 ? Math.round(a.size / 1024) + 'k' : a.size + 'b'}</span>
+        </figcaption>
+      </figure>`).join('')}</div>`
+    : `<div class="empty"><svg><use href="#i-grid"/></svg><h3>No images committed yet</h3>
+       <p>${esc(S.assetErr || 'Nothing matching an image extension is tracked in this repository on ' + (S.assetBranch || 'master') + '. Commit some art and it turns up here.')}</p></div>`}`;
+
+  // raw.githubusercontent refuses private repos — swap those to data: URLs
+  $$('.asset img').forEach(img => {
+    img.onerror = () => { if (!img.dataset.hydrated) hydrateAsset(img, img.dataset.path); };
+  });
+}
+
+function openAsset(path) {
+  const a = (S.assetList || []).find(x => x.path === path);
+  if (!a) return;
+  const url = rawUrl(a);
+  const { owner, repo } = repoNow();
+  const m = openModal(`
+    ${modalHead(esc(a.name))}
+    <div class="modal-body" style="text-align:center">
+      <div class="asset-big"><img src="${attr(url)}" alt="${attr(a.name)}" data-path="${attr(a.path)}"></div>
+      <div class="mono" style="margin-top:12px;color:var(--fg-faint);font-size:12px">${esc(a.path)} · ${a.size >= 1024 ? Math.round(a.size / 1024) + ' KB' : a.size + ' B'}</div>
+    </div>
+    <div class="modal-foot">
+      <a class="btn btn-ghost" href="https://github.com/${esc(owner)}/${esc(repo)}/blob/${esc(S.assetBranch || 'master')}/${esc(a.path)}" target="_blank" rel="noopener"><svg><use href="#i-github"/></svg>On GitHub</a>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost" id="asMd"><svg><use href="#i-copy"/></svg>Copy markdown</button>
+      <button class="btn btn-ghost" id="asRef"><svg><use href="#i-spark"/></svg>Add to Inspiration</button>
+      <button class="btn btn-primary" id="asUrl"><svg><use href="#i-link"/></svg>Copy URL</button>
+    </div>`, { wide: true });
+
+  const img = $('.asset-big img', m);
+  img.onerror = () => hydrateAsset(img, a.path);
+  const copy = async (text, what) => {
+    try { await navigator.clipboard.writeText(text); toast(`${what} copied`, 'ok'); }
+    catch { toast('Clipboard blocked — ' + text, 'err'); }
+  };
+  $('#asUrl', m).onclick = () => copy(url, 'URL');
+  $('#asMd', m).onclick = () => copy(`![${a.name}](${url})`, 'Markdown');
+  $('#asRef', m).onclick = () => {
+    S.inspiration.unshift({ id: uid(), title: a.name, url: '', image: url, note: '', tags: ['asset'] });
+    saveInspiration(); closeModal(); toast('Added to Inspiration', 'ok');
+  };
+}
+
+/* ---------- ideas ----------
+   An idea is a GitHub issue carrying the `idea` label and no status label.
+   It is excluded from the board on purpose: unformed thinking should not
+   inflate the backlog. Promoting swaps the label and it becomes a task. */
+
+const ideaList = () => S.issues.filter(isIdea);
+
+function ideaTags(i) {
+  return (i.labels || []).map(l => l.name || l)
+    .filter(n => String(n).toLowerCase() !== IDEA_LABEL &&
+                 !S.columns.some(c => c.label.toLowerCase() === String(n).toLowerCase()));
+}
+
+function renderIdeas() {
+  if (!S.token) {
+    $('#ideasWrap').innerHTML = `<div class="empty"><svg><use href="#i-bulb"/></svg><h3>Connect GitHub first</h3>
+      <p>Ideas are stored as issues labelled <code>${IDEA_LABEL}</code>, so they get numbers, comments and history — but never appear on the board until you promote one.</p></div>`;
+    return;
+  }
+  const all = ideaList();
+  const q = S.q.trim().toLowerCase();
+  const tags = [...new Set(all.flatMap(ideaTags))].sort();
+  const active = S.ideaTag || '';
+  const items = all
+    .filter(i => !active || ideaTags(i).includes(active))
+    .filter(i => !q || `#${i.number} ${i.title} ${i.body || ''}`.toLowerCase().includes(q))
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+
+  $('#ideasWrap').innerHTML = `
+    <div class="insp-head">
+      <button class="btn btn-primary btn-sm" data-act="idea-new"><svg><use href="#i-plus"/></svg>New idea</button>
+      ${tags.length ? `<div class="row" style="gap:6px">
+        <button class="chip ${!active ? 'is-on' : ''}" data-act="idea-tag" data-tag="">All</button>
+        ${tags.map(t => `<button class="chip ${active === t ? 'is-on' : ''}" data-act="idea-tag" data-tag="${attr(t)}">${esc(t)}</button>`).join('')}
+      </div>` : ''}
+      <span style="flex:1"></span>
+      <span style="font-size:11.5px;color:var(--fg-faint)">${all.length} idea${all.length === 1 ? '' : 's'} · hidden from the board</span>
+    </div>
+
+    ${items.length ? `<div class="idea-grid">${items.map(i => {
+      const img = firstImage(i.body);
+      const body = String(i.body || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').trim();
+      return `
+      <article class="idea" data-num="${i.number}">
+        ${img ? `<div class="idea-img" style="background-image:url('${attr(img)}')"></div>` : ''}
+        <div class="idea-body">
+          <div class="idea-top"><span class="mono">#${i.number}</span>${i.comments ? `<span class="mono">${i.comments} 💬</span>` : ''}
+            <span style="flex:1"></span><span class="mono" style="color:var(--fg-faint)">${ago(i.updated_at)}</span></div>
+          <div class="idea-title" data-act="idea-open" data-num="${i.number}">${esc(i.title)}</div>
+          ${body ? `<div class="idea-note">${esc(body.slice(0, 220))}${body.length > 220 ? '…' : ''}</div>` : ''}
+          ${ideaTags(i).length ? `<div class="insp-tags">${ideaTags(i).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+          <div class="idea-actions">
+            <button class="btn btn-ghost btn-sm" data-act="idea-promote" data-num="${i.number}"><svg><use href="#i-bolt"/></svg>Promote to task</button>
+            <button class="icon-btn" data-act="idea-open" data-num="${i.number}" title="Open"><svg><use href="#i-cog"/></svg></button>
+          </div>
+        </div>
+      </article>`;
+    }).join('')}</div>`
+    : `<div class="empty"><svg><use href="#i-bulb"/></svg><h3>${all.length ? 'Nothing matches' : 'No ideas yet'}</h3>
+       <p>Somewhere to put the half-thoughts — festivals, love interests, a mechanic you are not sure about — without them cluttering the board. Promote one when it becomes real work.</p>
+       <button class="btn btn-primary" data-act="idea-new"><svg><use href="#i-plus"/></svg>Capture the first one</button></div>`}`;
+}
+
+function openIdeaNew() {
+  const m = openModal(`
+    ${modalHead('New idea')}
+    <div class="modal-body">
+      <div class="field"><label>The idea</label><input class="input" id="idT" placeholder="Characters get holidays during festivals" autofocus></div>
+      <div class="field"><label>Where it goes <span class="hint">— markdown, images, half-finished thinking all fine</span></label>
+        <textarea class="textarea" id="idB" style="min-height:150px" placeholder="A temporary schedule that takes them off work and out to a carnival.&#10;&#10;Open question: does suspicion drop or spike during a festival?"></textarea></div>
+      <div class="field"><label>Tags <span class="hint">existing labels, comma separated</span></label>
+        <input class="input" id="idG" placeholder="design, characters"></div>
+      <div class="dropzone" id="idDrop"><svg style="vertical-align:-3px"><use href="#i-image"/></svg> Drop a reference image or click to upload</div>
+    </div>
+    <div class="modal-foot"><span class="spacer"></span>
+      <button class="btn btn-ghost" data-act="close">Cancel</button>
+      <button class="btn btn-primary" id="idSave"><svg><use href="#i-plus"/></svg>Save idea</button></div>`, { wide: true });
+
+  wireDropzone($('#idDrop', m), url => { $('#idB', m).value += `\n\n![](${url})\n`; });
+  wirePaste(m, $('#idB', m));
+  setTimeout(() => $('#idT', m).focus(), 40);
+
+  $('#idSave', m).onclick = async () => {
+    const title = $('#idT', m).value.trim();
+    if (!title) { toast('Give it a name', 'err'); return; }
+    const tags = $('#idG', m).value.split(',').map(t => t.trim()).filter(Boolean);
+    try {
+      await createIdea(title, $('#idB', m).value, tags);
+      closeModal(); renderIdeas(); paintCounts();
+      toast('Idea saved', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+}
+
+async function createIdea(title, body, tags = []) {
+  const labels = [IDEA_LABEL, ...tags];
+  if (S.demo) {
+    const issue = { number: Math.max(0, ...S.issues.map(i => i.number)) + 1, title, body, state: 'open',
+      labels: labels.map(n => ({ name: n, color: 'd9ae3f' })), created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(), closed_at: null, comments: 0, html_url: '#', user: { login: 'you' } };
+    S.issues.unshift(issue); return issue;
+  }
+  const { owner, repo } = repoNow();
+  await ensureIdeaLabel();
+  const r = await gh(`/repos/${owner}/${repo}/issues`, { method: 'POST', body: { title, body, labels } });
+  S.issues.unshift(r.data);
+  return r.data;
+}
+
+async function ensureIdeaLabel() {
+  if (S.labels.some(l => l.name.toLowerCase() === IDEA_LABEL)) return;
+  const { owner, repo } = repoNow();
+  try {
+    const r = await gh(`/repos/${owner}/${repo}/labels`, { method: 'POST',
+      body: { name: IDEA_LABEL, color: 'd9ae3f', description: 'Unformed — not on the board yet' } });
+    S.labels.push(r.data);
+  } catch (e) { if (e.status !== 422) throw e; }
+}
+
+function openPromote(num) {
+  const issue = S.issues.find(i => i.number === num);
+  if (!issue) return;
+  const openMs = S.milestones.filter(m => m.state === 'open');
+  const m = openModal(`
+    ${modalHead(`Promote <span class="mono" style="color:var(--fg-faint)">#${num}</span>`)}
+    <div class="modal-body">
+      <p class="hint" style="margin:0 0 14px">This drops the <code>${IDEA_LABEL}</code> label and gives it a status, so it starts appearing on the board.</p>
+      <div class="row">
+        <div class="field" style="margin:0;flex:0 0 190px"><label>Into column</label>
+          <select class="select" id="prCol">${S.columns.filter(c => c.id !== 'done').map(c =>
+            `<option value="${c.id}" ${c.id === 'todo' ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+        ${openMs.length ? `<div class="field" style="margin:0;flex:0 0 210px"><label>Milestone</label>
+          <select class="select" id="prMs"><option value="">None</option>
+            ${openMs.map(x => `<option value="${x.number}">${esc(x.title)}</option>`).join('')}</select></div>` : ''}
+      </div>
+    </div>
+    <div class="modal-foot"><span class="spacer"></span>
+      <button class="btn btn-ghost" data-act="close">Cancel</button>
+      <button class="btn btn-primary" id="prGo"><svg><use href="#i-bolt"/></svg>Promote</button></div>`);
+
+  $('#prGo', m).onclick = async () => {
+    const col = S.columns.find(c => c.id === $('#prCol', m).value);
+    const keep = (issue.labels || []).map(l => l.name || l)
+      .filter(n => String(n).toLowerCase() !== IDEA_LABEL);
+    const body = { labels: [...keep, col.label] };
+    const msSel = $('#prMs', m) ? $('#prMs', m).value : '';
+    if (msSel) body.milestone = +msSel;
+    if (S.demo) {
+      issue.labels = body.labels.map(n => ({ name: n, color: '5a6470' }));
+      closeModal(); render(); paintCounts(); return;
+    }
+    try {
+      const { owner, repo } = repoNow();
+      const r = await gh(`/repos/${owner}/${repo}/issues/${num}`, { method: 'PATCH', body });
+      Object.assign(issue, r.data);
+      closeModal(); render(); paintCounts();
+      toast(`#${num} is now a task in ${col.name}`, 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  };
 }
 
 /* ---------- milestones ---------- */
@@ -2057,9 +2385,11 @@ function openImport() {
             <input type="checkbox" checked data-imp="${i}">
             <div><b>${esc(b.title)}</b>${b.body ? `<span>${esc(b.body.slice(0, 180))}</span>` : ''}</div>
           </label>`).join('')}</div>
-        <div class="field" style="margin-top:13px"><label>Into column</label>
-          <select class="select" id="impCol" style="max-width:200px">${S.columns.map(c =>
-            `<option value="${c.id}" ${c.id === 'todo' ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>`
+        <div class="field" style="margin-top:13px"><label>Import as</label>
+          <select class="select" id="impCol" style="max-width:230px">
+            <option value="__idea" selected>💡 Ideas — kept off the board</option>
+            ${S.columns.map(c => `<option value="${c.id}">Task in ${esc(c.name)}</option>`).join('')}
+          </select></div>`
         : '<div class="callout info">No blocks found in that file.</div>';
       $('#impGo', m).disabled = !blocks.length;
     } catch (e) {
@@ -2070,16 +2400,20 @@ function openImport() {
 
   $('#impGo', m).onclick = async () => {
     const picked = $$('[data-imp]', m).filter(c => c.checked).map(c => blocks[+c.dataset.imp]);
-    const col = ($('#impCol', m) || {}).value || 'todo';
+    const col = ($('#impCol', m) || {}).value || '__idea';
     const btn = $('#impGo', m); btn.disabled = true;
     let made = 0;
     for (const b of picked) {
       btn.textContent = `Creating ${made + 1}/${picked.length}…`;
-      try { await createTask({ title: b.title, body: b.body, col }); made++; }
+      try {
+        if (col === '__idea') await createIdea(b.title, b.body);
+        else await createTask({ title: b.title, body: b.body, col });
+        made++;
+      }
       catch (e) { toast(`${b.title}: ${e.message}`, 'err'); break; }
     }
     closeModal(); render(); paintCounts();
-    toast(`Imported ${made} task(s)`, 'ok');
+    toast(`Imported ${made} ${col === '__idea' ? 'idea' : 'task'}(s)`, 'ok');
   };
 }
 
