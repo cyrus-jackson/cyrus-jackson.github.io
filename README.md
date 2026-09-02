@@ -69,6 +69,24 @@ Nothing here needs a paid plan or anything from the Student Developer Pack.
 
 Authenticated requests get 5,000 API calls per hour; the remaining budget is shown bottom-left.
 
+### How it avoids burning that budget
+
+Every `GET` stores its `ETag` alongside the response body in `localStorage` and replays it as
+`If-None-Match` on the next request. GitHub answers unchanged data with `304 Not Modified`, and
+**a conditional request that returns 304 does not count against the primary rate limit when it
+carries an `Authorization` header** — so refreshing a board where nothing has changed is free.
+The board still paints, from the cached body.
+
+On top of that:
+
+- the board paints from the cache before the network answers, so a reload is instant;
+- CI check status (up to 12 calls) is only fetched when you actually open the Pull Requests tab;
+- an implicit reload within 30 seconds of the last one is skipped — the Refresh button and `r` always go through.
+
+A cold first load is about 5 calls. Every reload after that, with nothing changed upstream, is 0.
+Settings shows how many responses have come back free, and has a **Clear request cache** button
+if you ever want to force a full refetch.
+
 ### Board columns ↔ labels
 
 Each column maps to a label, so the board still reads correctly on github.com:

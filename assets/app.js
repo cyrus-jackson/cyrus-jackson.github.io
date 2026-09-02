@@ -52,6 +52,8 @@ const S = {
   q       : '',
   filters : [],
   rate    : null,
+  lastLoad: null,
+  checksLoaded: false,
   demo    : false,
   loading : false,
 };
@@ -189,17 +191,65 @@ function taskProgress(body) {
   return { done: done.length, total: all.length };
 }
 
+/* ---------- HTTP cache: ETag conditional requests ----------
+   GitHub does not charge a 304 against the primary rate limit when the
+   request carries an Authorization header, so every unchanged response
+   below is free. We keep the etag AND the body, so a 304 still returns data. */
+const CKEY = 'httpcache';
+let httpCache = store.get(CKEY, {});
+let cacheSaves = store.get('cacheSaves', 0);
+let cacheTimer = null;
+
+function cacheFlush() {
+  const cutoff = Date.now() - 3 * 864e5;
+  for (const k of Object.keys(httpCache)) if ((httpCache[k].ts || 0) < cutoff) delete httpCache[k];
+  try { localStorage.setItem(NS + CKEY, JSON.stringify(httpCache)); }
+  catch {
+    // over quota — drop the biggest half and try once more
+    const keys = Object.keys(httpCache)
+      .sort((a, b) => JSON.stringify(httpCache[b]).length - JSON.stringify(httpCache[a]).length);
+    keys.slice(0, Math.ceil(keys.length / 2)).forEach(k => delete httpCache[k]);
+    try { localStorage.setItem(NS + CKEY, JSON.stringify(httpCache)); } catch { httpCache = {}; }
+  }
+}
+const cacheSave = () => { clearTimeout(cacheTimer); cacheTimer = setTimeout(cacheFlush, 800); };
+function cacheClear() { httpCache = {}; cacheSaves = 0; store.set('cacheSaves', 0); cacheFlush(); }
+const cacheBytes = () => { try { return (localStorage.getItem(NS + CKEY) || '').length; } catch { return 0; } };
+
 /* ---------- GitHub API ---------- */
 async function gh(path, opts = {}) {
   const url = path.startsWith('http') ? path : API + path;
+  const method = opts.method || 'GET';
   const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(opts.headers || {}) };
   if (S.token) headers.Authorization = 'Bearer ' + S.token;
   if (opts.body) headers['Content-Type'] = 'application/json';
-  const res = await fetch(url, { method: opts.method || 'GET', headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+
+  // Only authenticated GETs are worth revalidating — an unauthenticated 304
+  // still costs a request, so there is nothing to win there.
+  const conditional = method === 'GET' && !!S.token && !opts.noCache;
+  const hit = conditional ? httpCache[url] : null;
+  if (hit && hit.etag) headers['If-None-Match'] = hit.etag;
+
+  const init = { method, headers, body: opts.body ? JSON.stringify(opts.body) : undefined };
+  // Bypass the browser's own HTTP cache so our conditional request is the one
+  // that reaches GitHub and we actually observe the 304.
+  if (conditional) init.cache = 'no-store';
+
+  const res = await fetch(url, init);
 
   const rem = res.headers.get('x-ratelimit-remaining');
-  if (rem !== null) { S.rate = { rem: +rem, limit: +(res.headers.get('x-ratelimit-limit') || 0), reset: +(res.headers.get('x-ratelimit-reset') || 0) }; paintConn(); }
-  if (res.status === 204) return null;
+  if (rem !== null) {
+    S.rate = { rem: +rem, limit: +(res.headers.get('x-ratelimit-limit') || 0), reset: +(res.headers.get('x-ratelimit-reset') || 0) };
+    paintConn();
+  }
+
+  if (res.status === 304 && hit) {
+    hit.ts = Date.now();
+    cacheSaves++; store.set('cacheSaves', cacheSaves);
+    cacheSave(); paintConn();
+    return { data: hit.data, link: hit.link, cached: true };
+  }
+  if (res.status === 204) return { data: null, link: null };
 
   const text = await res.text();
   let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
@@ -208,8 +258,15 @@ async function gh(path, opts = {}) {
     err.status = res.status; err.data = data; err.link = res.headers.get('link');
     throw err;
   }
+
+  const etag = res.headers.get('etag');
+  if (conditional && etag) {
+    httpCache[url] = { etag, data, link: res.headers.get('link'), ts: Date.now() };
+    cacheSave();
+  }
   return { data, link: res.headers.get('link') };
 }
+
 const ghGet = async (p) => (await gh(p)).data;
 
 async function ghAll(path, maxPages = 4) {
@@ -297,24 +354,53 @@ function setLoading(on) {
   $('#btnRefresh').classList.toggle('is-spinning', on);
 }
 
-async function loadAll({ quiet = false } = {}) {
+function listPaths() {
+  const { owner, repo } = repoNow();
+  return {
+    issues: `/repos/${owner}/${repo}/issues?state=all&per_page=100&sort=updated&direction=desc`,
+    pulls:  `/repos/${owner}/${repo}/pulls?state=all&per_page=100&sort=updated&direction=desc`,
+    labels: `/repos/${owner}/${repo}/labels?per_page=100`,
+  };
+}
+
+// Paint from the last response we stored before the network answers. The
+// revalidation that follows usually comes back 304, so this costs nothing.
+function hydrateFromCache() {
+  if (!S.token) return false;
+  const u = listPaths();
+  const iss = httpCache[API + u.issues], pr = httpCache[API + u.pulls], lb = httpCache[API + u.labels];
+  if (!iss || !Array.isArray(iss.data)) return false;
+  S.issues = iss.data.filter(i => !i.pull_request);
+  S.prs    = pr && Array.isArray(pr.data) ? pr.data : [];
+  S.labels = lb && Array.isArray(lb.data) ? lb.data : [];
+  S.demo = false;
+  return true;
+}
+
+async function loadAll({ quiet = false, force = false } = {}) {
   if (!S.token) { loadDemo(); return; }
   const { owner, repo } = repoNow();
   if (!owner || !repo) return;
+  // An implicit reload within 30s of the last one buys nothing; explicit
+  // refresh always goes through.
+  if (!force && S.lastLoad && S.lastLoad.key === repoKey() && Date.now() - S.lastLoad.t < 30000) return;
   setLoading(true);
   try {
+    const u = listPaths();
     const [issues, prs, labels] = await Promise.all([
-      ghAll(`/repos/${owner}/${repo}/issues?state=all&per_page=100&sort=updated&direction=desc`, 3),
-      ghAll(`/repos/${owner}/${repo}/pulls?state=all&per_page=100&sort=updated&direction=desc`, 2),
-      ghGet(`/repos/${owner}/${repo}/labels?per_page=100`).catch(() => []),
+      ghAll(u.issues, 3),
+      ghAll(u.pulls, 2),
+      ghGet(u.labels).catch(() => []),
     ]);
     S.demo = false;
     S.issues = issues.filter(i => !i.pull_request);
     S.prs    = prs || [];
     S.labels = labels || [];
     $('#demoBanner')?.remove();
+    S.lastLoad = { key: repoKey(), t: Date.now() };
+    S.checksLoaded = false;
     if (!quiet) toast(`Loaded ${S.issues.length} tasks · ${S.prs.length} PRs`, 'ok');
-    loadChecks();
+    if (S.view === 'prs') loadChecks();
   } catch (e) {
     if (e.status === 401) toast('GitHub rejected the token — check Settings', 'err');
     else if (e.status === 404) toast(`Repo ${owner}/${repo} not found (or token lacks access)`, 'err');
@@ -327,6 +413,8 @@ async function loadAll({ quiet = false } = {}) {
 }
 
 async function loadChecks() {
+  if (S.checksLoaded || !S.token) return;
+  S.checksLoaded = true;
   const { owner, repo } = repoNow();
   const open = S.prs.filter(p => p.state === 'open').slice(0, 12);
   await Promise.all(open.map(async p => {
@@ -714,7 +802,7 @@ async function openTask(num) {
     if (!txt || S.demo) return;
     try {
       await gh(`/repos/${owner}/${repo}/issues/${num}/comments`, { method: 'POST', body: { body: txt } });
-      toast('Comment posted', 'ok'); closeModal(); loadAll({ quiet: true });
+      toast('Comment posted', 'ok'); closeModal(); loadAll({ quiet: true, force: true });
     } catch (e) { toast(e.message, 'err'); }
   };
 
@@ -1075,7 +1163,10 @@ function renderSettings() {
         <h3>Local data</h3>
         <div class="kv"><b>Card order</b><span>${Object.keys(S.order).length} board(s) remembered in this browser</span></div>
         <div class="kv"><b>Inspiration</b><span>${S.inspiration.length} references</span></div>
+        <div class="kv"><b>Request cache</b><span>${Object.keys(httpCache).length} cached responses · ${(cacheBytes() / 1024).toFixed(0)} KB</span></div>
+        <div class="kv"><b>Calls saved</b><span>${cacheSaves} unchanged response(s) returned without spending rate limit</span></div>
         <div class="row" style="margin-top:13px">
+          <button class="btn btn-ghost btn-sm" data-act="cache-clear">Clear request cache</button>
           <button class="btn btn-ghost btn-sm" data-act="export">Export as JSON</button>
           <button class="btn btn-danger btn-sm" data-act="wipe">Clear local data</button>
         </div>
@@ -1167,7 +1258,7 @@ function render() {
       onDrop: (item, list) => moveIssue(+item.dataset.num, list.dataset.list),
     });
   }
-  else if (S.view === 'prs') renderPRs();
+  else if (S.view === 'prs') { renderPRs(); loadChecks(); }
   else if (S.view === 'inspiration') renderInspiration();
   else if (S.view === 'progress') renderProgress();
   else if (S.view === 'settings') renderSettings();
@@ -1204,7 +1295,7 @@ async function createStatusLabels() {
     } catch (e) { if (e.status !== 422) toast(`${c.label}: ${e.message}`, 'err'); }
   }
   toast(made ? `Created ${made} label(s)` : 'Those labels already exist', 'ok');
-  loadAll({ quiet: true });
+  loadAll({ quiet: true, force: true });
 }
 
 /* ---------- events ---------- */
@@ -1220,7 +1311,7 @@ function wire() {
     S.filters = []; paintRepos(); loadAll();
   });
 
-  $('#btnRefresh').onclick = () => { loadAll(); loadInspiration(); };
+  $('#btnRefresh').onclick = () => { loadAll({ force: true }); loadInspiration(); };
   $('#btnNew').onclick = () => S.view === 'inspiration' ? openInspEdit(null) : openNewTask('todo');
 
   let t;
@@ -1279,6 +1370,7 @@ function wire() {
       store.set('assets', S.assets); S.inspSha = null;
       toast('Assets repo saved', 'ok'); loadInspiration();
     }
+    else if (act === 'cache-clear') { cacheClear(); toast('Request cache cleared', 'ok'); renderSettings(); }
     else if (act === 'export') {
       const blob = new Blob([JSON.stringify({ repos: S.repos, columns: S.columns, assets: S.assets, order: S.order, inspiration: S.inspiration }, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
@@ -1296,7 +1388,7 @@ function wire() {
     if (e.target.matches('input,textarea,select') || !$('#modalRoot').hidden) return;
     if (e.key === '/') { e.preventDefault(); $('#search').focus(); }
     else if (e.key === 'n' && S.view === 'board') { e.preventDefault(); openNewTask('todo'); }
-    else if (e.key === 'r') { e.preventDefault(); loadAll(); }
+    else if (e.key === 'r') { e.preventDefault(); loadAll({ force: true }); }
   });
 
 }
@@ -1309,6 +1401,7 @@ async function init() {
   wire();
 
   if (S.token) {
+    if (hydrateFromCache()) { paintCounts(); }
     render();
     try { S.user = await ghGet('/user'); } catch { S.user = null; }
     paintConn();
