@@ -109,6 +109,13 @@ async function openTask(num) {
           <select class="select" id="tCol">${S.columns.map(c =>
             `<option value="${c.id}" ${c.id === cur ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
         </div>
+        <div class="field" style="margin:0;flex:0 0 132px">
+          <label>Estimate</label>
+          <select class="select" id="tEst">
+            <option value="">None</option>
+            ${EST_CHOICES.map(d => `<option value="${d}" ${estOf(issue) === d ? 'selected' : ''}>${fmtDur(d)}</option>`).join('')}
+          </select>
+        </div>
         <div class="field" style="margin:0;flex:0 0 200px">
           <label>Milestone</label>
           <select class="select" id="tMs">
@@ -120,7 +127,7 @@ async function openTask(num) {
         <div class="field" style="margin:0;flex:1;min-width:200px">
           <label>Labels</label>
           <div class="row" id="tLabels" style="gap:5px">${
-            S.labels.filter(l => !statusLabels.has(l.name.toLowerCase())).map(l => {
+            S.labels.filter(l => !statusLabels.has(l.name.toLowerCase()) && !isEstLabel(l.name)).map(l => {
               const on = (issue.labels || []).some(x => (x.name || x) === l.name);
               return `<button class="chip ${on ? 'is-on' : ''}" data-lbl="${attr(l.name)}">
                         <i class="sw" style="background:#${esc(l.color)}"></i>${esc(l.name)}</button>`;
@@ -128,6 +135,14 @@ async function openTask(num) {
         </div>
       </div>
 
+      ${(() => {
+        const lead = leadDays(issue), est = estOf(issue);
+        const bit = lead !== null
+          ? `Took <b>${fmtDur(lead)}</b> from created to done`
+          : `Open <b>${fmtDur(openDays(issue))}</b> so far`;
+        const cmp = est ? ` · estimated <b>${fmtDur(est)}</b>${lead !== null ? ` (${(lead / est).toFixed(1)}x)` : ''}` : '';
+        return `<div class="dur-line">${bit}${cmp}</div>`;
+      })()}
       <div class="tabs"><button class="tab is-on" data-tab="view">Description</button><button class="tab" data-tab="edit">Edit</button></div>
       <div id="tView" class="md">${md(issue.body, { tasks: true })}</div>
       <textarea class="textarea" id="tBody" hidden style="min-height:190px">${esc(issue.body || '')}</textarea>
@@ -214,6 +229,9 @@ async function openTask(num) {
     const toCol = $('#tCol', m).value;
     const col = S.columns.find(c => c.id === toCol);
     const payload = { title: $('#tTitle', m).value.trim() || issue.title, body: body.value, labels: [...chosen, col.label] };
+    const estSel = $('#tEst', m).value;
+    payload.labels = payload.labels.filter(n => !isEstLabel(n));
+    if (estSel) payload.labels.push(estLabelName(parseFloat(estSel)));
     const msSel = $('#tMs', m).value;
     const curMs = issue.milestone ? String(issue.milestone.number) : '';
     if (msSel !== curMs) payload.milestone = msSel ? +msSel : null;
@@ -223,6 +241,7 @@ async function openTask(num) {
       closeModal(); render(); return;
     }
     try {
+      if (estSel) await ensureLabel(estLabelName(parseFloat(estSel)), '5a6470', 'Kea Mission Control — estimate');
       const r = await gh(`/repos/${owner}/${repo}/issues/${num}`, { method: 'PATCH', body: payload });
       Object.assign(issue, r.data);
       toast(`Saved #${num}`, 'ok'); closeModal(); render(); paintCounts();
@@ -443,7 +462,8 @@ function openInspEdit(id) {
 
 /* ---------- progress ---------- */
 function renderProgress() {
-  const closed = S.issues.filter(i => i.closed_at).sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
+  const tasks = S.issues.filter(i => !isIdea(i));
+  const closed = tasks.filter(i => i.closed_at).sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
   const weeks = [];
   const now = startOfWeek(new Date());
   for (let w = 7; w >= 0; w--) {
@@ -452,10 +472,38 @@ function renderProgress() {
     weeks.push({ from, n: closed.filter(i => { const d = new Date(i.closed_at); return d >= from && d < to; }).length });
   }
   const max = Math.max(1, ...weeks.map(w => w.n));
-  const byCol = S.columns.map(c => ({ c, n: S.issues.filter(i => colOf(i) === c.id).length }));
+  const byCol = S.columns.map(c => ({ c, n: tasks.filter(i => colOf(i) === c.id).length }));
   const totalCol = Math.max(1, byCol.reduce((a, b) => a + b.n, 0));
-  const openN = S.issues.filter(i => i.state === 'open').length;
+  const openN = tasks.filter(i => i.state === 'open').length;
   const merged30 = S.prs.filter(p => p.merged_at && Date.now() - new Date(p.merged_at) < 30 * 864e5).length;
+
+  // Days you actually shipped on, not days elapsed.
+  const shipDays   = new Set(closed.map(i => dayKey(i.closed_at)));
+  const perShipDay = shipDays.size ? closed.length / shipDays.size : 0;
+  const leads      = closed.map(leadDays).filter(x => x !== null && x >= 0);
+  const medLead    = median(leads);
+  const openTasks  = tasks.filter(i => i.state === 'open');
+  const times      = closed.map(i => +new Date(i.closed_at));
+  const spanDays   = times.length ? (Math.max(...times) - Math.min(...times)) / 864e5 : null;
+
+  // Only project when there is enough history to mean anything.
+  const enough      = closed.length >= 3 && shipDays.size >= 2;
+  const backlogDays = enough && perShipDay > 0 ? openTasks.length / perShipDay : null;
+  const density     = spanDays && spanDays >= 1 ? shipDays.size / spanDays : null;   // share of days you ship
+  const etaDays     = backlogDays && density ? backlogDays / density : null;
+  const eta         = etaDays ? new Date(Date.now() + etaDays * 864e5) : null;
+
+  const strip = [];
+  for (let d = 29; d >= 0; d--) {
+    const day = new Date(); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() - d);
+    strip.push({ day, n: closed.filter(i => dayKey(i.closed_at) === dayKey(day)).length });
+  }
+  const stripMax = Math.max(1, ...strip.map(x => x.n));
+
+  const withEst   = closed.filter(i => estOf(i) && leadDays(i) !== null);
+  const estRatio  = withEst.length ? median(withEst.map(i => leadDays(i) / estOf(i))) : null;
+  const slowest   = [...closed].filter(i => leadDays(i) !== null)
+                      .sort((a, b) => leadDays(b) - leadDays(a)).slice(0, 5);
 
   $('#progWrap').innerHTML = `
     <div class="prog-wrap">
@@ -474,6 +522,51 @@ function renderProgress() {
             <div class="bar" style="height:${Math.max(3, w.n / max * 100)}%">${w.n ? `<span>${w.n}</span>` : ''}</div>
             <div class="bar-lab">${w.from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>
           </div>`).join('')}</div>
+      </div>
+
+      <div class="panel">
+        <h3>Time</h3>
+        ${closed.length ? `
+          <div class="stat-row" style="margin-bottom:16px">
+            <div class="stat"><b>${shipDays.size}</b><span class="lab">Days shipped on</span></div>
+            <div class="stat"><b>${perShipDay ? perShipDay.toFixed(1) : '—'}</b><span class="lab">Tasks per those days</span></div>
+            <div class="stat"><b>${medLead !== null ? fmtDur(medLead) : '—'}</b><span class="lab">Median created → done</span></div>
+            <div class="stat"><b style="color:${backlogDays ? 'var(--accent)' : 'var(--fg-faint)'}">${backlogDays ? fmtDur(backlogDays) : '—'}</b><span class="lab">Backlog at that pace</span></div>
+            <div class="stat"><b>${spanDays !== null ? fmtDur(spanDays) : '—'}</b><span class="lab">Span of done work</span></div>
+          </div>
+
+          <div class="micro" style="margin-bottom:7px">Last 30 days</div>
+          <div class="daystrip">${strip.map(x => `
+            <i class="dcell${x.n ? ' on' : ''}" style="${x.n ? `opacity:${(0.35 + 0.65 * x.n / stripMax).toFixed(2)}` : ''}"
+               title="${x.day.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} — ${x.n} closed"></i>`).join('')}</div>
+          <div class="daystrip-legend"><span>${strip[0].day.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span><span>today</span></div>
+
+          <div class="callout info" style="margin-top:15px">
+            <b>${closed.length}</b> task${closed.length === 1 ? '' : 's'} closed across <b>${shipDays.size}</b> day${shipDays.size === 1 ? '' : 's'}${
+              spanDays !== null && spanDays >= 1 ? ` in a ${fmtDur(spanDays)} window` : ''}.
+            ${backlogDays ? `The ${openTasks.length} open task${openTasks.length === 1 ? '' : 's'} are about <b>${fmtDur(backlogDays)}</b> of shipping days${
+              eta ? `, landing around <b>${eta.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</b> at your current rhythm` : ''}.`
+              : 'Not enough history yet to project the backlog — that needs three closed tasks across two days.'}
+            <br><span style="color:var(--fg-faint)">“Created → done” is lead time, not cycle time: an issue records no moment when work started, so backlog sitting time is included.</span>
+          </div>
+
+          ${estRatio !== null ? `<div class="legend-row" style="margin-top:14px">
+            <div class="legend-item"><span class="k">Estimate accuracy</span>
+              <span class="track" title="Bar fills with overrun, capped at 3x. On target is a third of the way across.">
+                <i style="width:${Math.min(100, (estRatio / 3) * 100).toFixed(0)}%;background:${estRatio > 1.5 ? 'var(--bad)' : estRatio > 1.1 ? 'var(--warn)' : 'var(--ok)'}"></i></span>
+              <span class="v">${estRatio.toFixed(1)}x</span></div>
+            <div style="font-size:12px;color:var(--fg-faint)">Across ${withEst.length} estimated task${withEst.length === 1 ? '' : 's'}, work took ${estRatio.toFixed(1)}x the estimate${estRatio > 1.2 ? ' — worth padding new ones' : estRatio < 0.8 ? ' — you are over-padding' : ', which is close'}. Set one in a task's Estimate field.</div>
+          </div>` : `<div style="font-size:12px;color:var(--fg-faint);margin-top:14px">No estimates set yet — open a task and pick one in the Estimate field to start tracking estimate against actual.</div>`}
+
+          ${slowest.length ? `<div style="margin-top:16px"><div class="micro" style="margin-bottom:7px">Longest to finish</div>
+            <div class="legend-row">${slowest.map(i => `
+              <div class="legend-item" style="gap:9px">
+                <span class="mono" style="color:var(--fg-faint);min-width:44px">#${i.number}</span>
+                <span style="flex:1">${esc(i.title)}</span>
+                ${estOf(i) ? `<span class="dur est">~${fmtDur(estOf(i))}</span>` : ''}
+                <span class="v" style="min-width:56px">${fmtDur(leadDays(i))}</span>
+              </div>`).join('')}</div></div>` : ''}`
+          : '<span style="color:var(--fg-faint)">Nothing closed yet, so there is no timing to report.</span>'}
       </div>
 
       <div class="panel">

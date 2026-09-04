@@ -33,6 +33,15 @@ function idleDays(i) {
 
 const prState = p => p.draft ? 'draft' : p.merged_at ? 'merged' : p.state === 'closed' ? 'closed' : 'open';
 
+async function ensureLabel(name, color, description) {
+  if (S.labels.some(l => String(l.name).toLowerCase() === String(name).toLowerCase())) return;
+  const { owner, repo } = repoNow();
+  try {
+    const r = await gh(`/repos/${owner}/${repo}/labels`, { method: 'POST', body: { name, color, description } });
+    S.labels.push(r.data);
+  } catch (e) { if (e.status !== 422) throw e; }
+}
+
 /* ---------- loading ---------- */
 function setLoading(on) {
   S.loading = on;
@@ -152,7 +161,7 @@ function renderFilters() {
     for (const l of (i.labels || [])) {
       const n = l.name || l;
       const low = String(n).toLowerCase();
-      if (statusLabels.has(low) || low === IDEA_LABEL) continue;
+      if (statusLabels.has(low) || low === IDEA_LABEL || isEstLabel(n)) continue;
       used.set(n, l.color || '888888');
     }
   }
@@ -203,6 +212,15 @@ function cardHTML(i, links) {
         const limit = +S.staleDays > 0 ? +S.staleDays : DEFAULT_STALE_DAYS;
         return mid && d >= limit
           ? `<span class="stale" title="No activity for ${d} days">idle ${d}d</span>` : '';
+      })()}
+      ${(() => {
+        const lead = leadDays(i), est = estOf(i);
+        if (lead !== null) {
+          const over = est && lead > est * 1.25;
+          return `<span class="dur ${over ? 'over' : 'done'}" title="Created to done: ${lead.toFixed(1)} days${est ? ` · estimated ${est}d` : ''}">${fmtDur(lead)}</span>`;
+        }
+        if (est) return `<span class="dur est" title="Estimate ${est}d · open ${Math.floor(openDays(i))} days">~${fmtDur(est)}</span>`;
+        return '';
       })()}
       ${i.comments ? `<span title="comments">${i.comments} 💬</span>` : ''}
       ${i.milestone ? `<span class="card-ms" title="Milestone"><svg><use href="#i-flag"/></svg>${esc(i.milestone.title)}</span>` : ''}

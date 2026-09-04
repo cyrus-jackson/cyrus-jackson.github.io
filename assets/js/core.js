@@ -22,6 +22,47 @@ const THEMES = [
 const IDEA_LABEL = 'idea';
 const DEFAULT_STALE_DAYS = 10;
 
+/* ---------- duration ----------
+   GitHub issues carry no estimate field, so an estimate is stored as an
+   `est:<n>d` label: native, visible on github.com, filterable there, and no
+   extra API surface. Actual duration is never stored — it is derived from
+   created_at and closed_at, so it cannot drift out of date.
+
+   That derived figure is created -> done, which is lead time, not cycle time.
+   An issue records no "work started" moment, so time spent sitting in the
+   backlog is included. The UI says "created to done" for that reason. */
+const EST_RE = /^est:(\d+(?:\.\d+)?)d$/i;
+const EST_CHOICES = [0.5, 1, 2, 3, 5, 8, 13];
+const estLabelName = d => `est:${d}d`;
+const isEstLabel = n => EST_RE.test(String(n || ''));
+
+function estOf(issue) {
+  for (const l of (issue.labels || [])) {
+    const m = EST_RE.exec(String(l.name || l));
+    if (m) return parseFloat(m[1]);
+  }
+  return null;
+}
+
+const leadDays = i => i.closed_at ? (new Date(i.closed_at) - new Date(i.created_at)) / 864e5 : null;
+const openDays = i => (Date.now() - new Date(i.created_at)) / 864e5;
+
+function fmtDur(d) {
+  if (d === null || d === undefined || !isFinite(d)) return '';
+  if (d < 1) return Math.max(1, Math.round(d * 24)) + 'h';
+  if (d < 10) return (Math.round(d * 10) / 10) + 'd';
+  return Math.round(d) + 'd';
+}
+
+// local calendar day, so "days shipped" matches the days you remember working
+const dayKey = v => { const d = new Date(v); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; };
+
+function median(xs) {
+  if (!xs.length) return null;
+  const a = [...xs].sort((x, y) => x - y), h = a.length >> 1;
+  return a.length % 2 ? a[h] : (a[h - 1] + a[h]) / 2;
+}
+
 const DEFAULT_COLUMNS = [
   { id:'todo',     name:'Todo',        label:'status:todo',        color:'#7d8ca3' },
   { id:'progress', name:'In Progress', label:'status:in-progress', color:'#60dcec' },
@@ -359,7 +400,8 @@ function paintRepos() {
   $('#repoChip').textContent = repoKey();
 }
 function paintCounts() {
-  const open = S.issues.filter(i => i.state === 'open').length;
+  // ideas are open issues but never board cards, so they must not inflate this
+  const open = S.issues.filter(i => i.state === 'open' && !isIdea(i)).length;
   $('#cntBoard').textContent = open || '';
   $('#cntPrs').textContent = S.prs.filter(p => p.state === 'open').length || '';
   $('#cntInsp').textContent = S.inspiration.length || '';

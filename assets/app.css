@@ -923,3 +923,31 @@ body.is-loading .k-mark { animation: k-orbit .8s steps(24) infinite; }
 }
 .docs-list > .docs-group:first-child { padding-top: 2px; }
 .docs-branch { width: 100%; padding: 6px 26px 6px 9px; font-size: 12px; background-size: 13px; }
+
+/* ---------- 19. DURATION ---------- */
+
+.dur {
+  font-family: var(--mono); font-size: 10px; font-weight: 650;
+  padding: 1px 6px; border-radius: 20px; border: 1px solid; white-space: nowrap;
+}
+.dur.done { color: var(--ok);    border-color: color-mix(in srgb, var(--ok) 38%, transparent);    background: color-mix(in srgb, var(--ok) 11%, transparent); }
+.dur.over { color: var(--bad);   border-color: color-mix(in srgb, var(--bad) 38%, transparent);   background: color-mix(in srgb, var(--bad) 11%, transparent); }
+.dur.est  { color: var(--fg-faint); border-color: var(--line-2); background: var(--sunken); }
+
+.dur-line {
+  font-size: 12.5px; color: var(--fg-dim);
+  padding: 9px 12px; margin-bottom: 13px;
+  background: var(--sunken); border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+.dur-line b { color: var(--fg); font-weight: 650; }
+
+.daystrip { display: flex; gap: 3px; align-items: stretch; }
+.daystrip .dcell {
+  flex: 1; height: 26px; border-radius: 3px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.daystrip .dcell.on { background: var(--col-4); border-color: transparent; }
+.daystrip-legend {
+  display: flex; justify-content: space-between;
+  font-size: 10.5px; color: var(--fg-faint); margin-top: 5px;
+}
