@@ -438,6 +438,7 @@ function applyTheme(id) {
   paintThemeName(id);
   if (S.view === 'board') renderBoard();
   if (S.view === 'prs') renderPRs();
+  initAmbient();
 }
 function paintThemes() {
   $('#themeDots').innerHTML = THEMES.map(t =>
@@ -488,5 +489,155 @@ function paintCounts() {
   $('#cntMs').textContent = S.milestones.filter(m => m.state === 'open').length || '';
   $('#cntIdeas').textContent = S.issues.filter(isIdea).length || '';
   $('#cntAssets').textContent = (S.assetList || []).length || '';
+}
+
+/* ---------- look & feel ----------
+   Every delight is a toggle in Settings → Look & feel, all on by default and
+   merged over defaults so new toggles light up for existing browsers too.
+   Motion (confetti, ambient dust) additionally yields to
+   prefers-reduced-motion; static dressing (covers, clocks, streaks) does not. */
+const DEFAULT_FX = { confetti: true, boom: 'full', covers: true, ambient: true, dust: 'subtle', clocks: true, streaks: true };
+S.fx = { ...DEFAULT_FX, ...store.get('fx', {}) };
+
+const fxOn = name => !!(S.fx && S.fx[name]);
+const motionOk = () => !(typeof window !== 'undefined' && window.matchMedia &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+const raf = cb => (typeof requestAnimationFrame !== 'undefined'
+  ? requestAnimationFrame(cb) : setTimeout(() => cb(Date.now()), 16));
+const caf = id => (typeof cancelAnimationFrame !== 'undefined' ? cancelAnimationFrame(id) : clearTimeout(id));
+
+/* Ship-it confetti: a fixed pointer-transparent canvas that lives only for
+   the burst, in the tracker's own accent palette. */
+const BOOM_COLORS = ['#60dcec', '#d9ae3f', '#c33f45', '#4ad6a0', '#8b7cf6', '#f7f5f0'];
+let boomCanvas = null, boomParts = [], boomRaf = 0;
+function celebrate(x, y) {
+  if (!fxOn('confetti') || !motionOk() || typeof document === 'undefined') return;
+  if (!boomCanvas) {
+    boomCanvas = document.createElement('canvas');
+    boomCanvas.id = 'boom';
+    boomCanvas.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(boomCanvas);
+  }
+  boomCanvas.width = window.innerWidth;
+  boomCanvas.height = window.innerHeight;
+  const n = (S.fx.boom || 'full') === 'full' ? 90 : 28;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 6;
+    boomParts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 3.2, g: 0.22,
+      life: 50 + Math.random() * 40, color: BOOM_COLORS[i % BOOM_COLORS.length],
+      size: 2 + Math.random() * 3.5, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.3 });
+  }
+  if (!boomRaf) boomRaf = raf(boomTick);
+}
+function boomTick() {
+  const c = boomCanvas;
+  const ctx = c && c.getContext ? c.getContext('2d') : null;
+  if (!ctx) { boomRaf = 0; return; }
+  boomParts = boomParts.filter(p => p.life > 0);
+  if (!boomParts.length) {
+    ctx.clearRect(0, 0, c.width, c.height);
+    if (c.parentNode) c.parentNode.removeChild(c);
+    boomCanvas = null; boomRaf = 0;
+    return;
+  }
+  boomRaf = raf(boomTick);
+  ctx.clearRect(0, 0, c.width, c.height);
+  for (const p of boomParts) {
+    p.x += p.vx; p.y += p.vy; p.vy += p.g; p.rot += p.vr; p.life--;
+    ctx.save();
+    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.globalAlpha = Math.min(1, p.life / 30);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.62);
+    ctx.restore();
+  }
+}
+
+/* Ambient dust: one fixed canvas behind the app, tinted per theme, drifting
+   slowly upward. Re-seeded on theme change; removed entirely when off. */
+const DUST_TINTS = { neon: '#60dcec', atompunk: '#d9ae3f', midnight: '#8b7cf6', terminal: '#4ef08d', paper: '#1f6f7a', mist: '#2563eb' };
+let dustCanvas = null, dustParts = [], dustRaf = 0;
+function stopAmbient() {
+  if (dustRaf) { caf(dustRaf); dustRaf = 0; }
+  dustParts = [];
+  if (typeof document !== 'undefined') {
+    const old = document.getElementById('dust');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+  }
+  dustCanvas = null;
+}
+function initAmbient() {
+  stopAmbient();
+  if (!fxOn('ambient') || !motionOk() || typeof document === 'undefined' || !document.body) return;
+  const theme = (document.documentElement.dataset || {}).theme || 'neon';
+  const c = document.createElement('canvas');
+  c.id = 'dust';
+  c.setAttribute('aria-hidden', 'true');
+  document.body.prepend(c);
+  c.width = window.innerWidth;
+  c.height = window.innerHeight;
+  dustCanvas = c;
+  const n = (S.fx.dust || 'subtle') === 'lively' ? 110 : 45;
+  const tint = DUST_TINTS[theme] || DUST_TINTS.neon;
+  for (let i = 0; i < n; i++) dustParts.push({ x: Math.random() * c.width, y: Math.random() * c.height,
+    r: 0.4 + Math.random() * 1.3, vy: 0.06 + Math.random() * 0.22, ph: Math.random() * 6.28,
+    sp: 0.3 + Math.random() * 0.9, a: 0.12 + Math.random() * 0.3, tint });
+  dustRaf = raf(dustTick);
+}
+function dustTick(t) {
+  const c = dustCanvas;
+  const ctx = c && c.getContext ? c.getContext('2d') : null;
+  if (!ctx) { dustRaf = 0; return; }
+  dustRaf = raf(dustTick);
+  ctx.clearRect(0, 0, c.width, c.height);
+  const now = (t || 0) / 1000;
+  for (const p of dustParts) {
+    p.y -= p.vy; p.x += Math.sin(now * p.sp + p.ph) * 0.15;
+    if (p.y < -4) { p.y = c.height + 4; p.x = Math.random() * c.width; }
+    ctx.globalAlpha = p.a * (0.7 + 0.3 * Math.sin(now * p.sp * 1.7 + p.ph));
+    ctx.fillStyle = p.tint;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.29); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* Live countdown to a due date. Ticking is owned by the milestones view. */
+function fmtCountdown(dueIso, nowMs = Date.now()) {
+  if (!dueIso) return '';
+  let s = Math.floor((new Date(dueIso) - nowMs) / 1000);
+  const past = s < 0; s = Math.abs(s);
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600),
+        m = Math.floor(s % 3600 / 60), sec = s % 60;
+  const body = d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m ${String(sec).padStart(2, '0')}s`;
+  return (past ? 'T+' : 'T-') + body;
+}
+
+/* Shipping streaks from closed timestamps. Pure: weeks bucket Monday-Sunday. */
+function shipStreaks(times) {
+  const keys = [...new Set((times || []).map(v => dayKey(v)))];
+  if (!keys.length) return { current: 0, longest: 0, bestWeek: 0, total: (times || []).length };
+  const DAY = 864e5;
+  const nums = keys.map(k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m, d).getTime(); })
+    .sort((a, b) => a - b);
+  let longest = 1, run = 1;
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] - nums[i - 1] === DAY) { run++; longest = Math.max(longest, run); }
+    else run = 1;
+  }
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let current = 0;
+  if (today.getTime() - nums[nums.length - 1] <= DAY) {
+    current = 1;
+    for (let i = nums.length - 1; i > 0 && nums[i] - nums[i - 1] === DAY; i--) current++;
+  }
+  const weeks = {};
+  for (const v of (times || [])) {
+    const d = new Date(v), monday = new Date(d);
+    monday.setHours(0, 0, 0, 0);
+    monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    const k = dayKey(monday);
+    weeks[k] = (weeks[k] || 0) + 1;
+  }
+  return { current, longest, bestWeek: Math.max(...Object.values(weeks)), total: (times || []).length };
 }
 

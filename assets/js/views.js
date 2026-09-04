@@ -488,6 +488,17 @@ function openInspEdit(id) {
 }
 
 /* ---------- progress ---------- */
+function streakHTML(closed) {
+  if (!fxOn('streaks') || !closed.length) return '';
+  const r = shipStreaks(closed.map(i => i.closed_at));
+  const streak = n => n > 0 ? `${n}d` : '—';
+  return `<div class="streak-row" title="Consecutive calendar days with at least one close">
+    <span class="streak${r.current >= 7 ? ' hot' : ''}">🔥 <b>${streak(r.current)}</b> streak</span>
+    <span class="streak">🏆 <b>${streak(r.longest)}</b> longest</span>
+    <span class="streak">📦 <b>${r.bestWeek}</b> best week</span>
+  </div>`;
+}
+
 function renderProgress() {
   const tasks = S.issues.filter(i => !isIdea(i));
   const closed = tasks.filter(i => i.closed_at).sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
@@ -541,6 +552,8 @@ function renderProgress() {
         <div class="stat"><b>${S.prs.filter(p => p.state === 'open').length}</b><span class="lab">Open PRs</span></div>
         <div class="stat"><b style="color:var(--merged)">${merged30}</b><span class="lab">Merged · 30 days</span></div>
       </div>
+
+      ${streakHTML(closed)}
 
       <div class="panel">
         <h3>Tasks completed per week</h3>
@@ -712,6 +725,32 @@ function renderSettings() {
       </div>
 
       <div class="panel">
+        <h3>Look &amp; feel</h3>
+        <span class="hint">Dressing only — nothing here touches your data. Motion always yields to your OS reduce-motion setting.</span>
+        <div class="fx-grid">
+          <label><input type="checkbox" id="fxConfetti" ${S.fx.confetti ? 'checked' : ''}> Ship-it confetti <span class="hint">when a card lands in Done</span></label>
+          <label><input type="checkbox" id="fxCovers" ${S.fx.covers ? 'checked' : ''}> Card covers <span class="hint">screenshot header on cards</span></label>
+          <label><input type="checkbox" id="fxAmbient" ${S.fx.ambient ? 'checked' : ''}> Ambient dust <span class="hint">slow drift behind everything</span></label>
+          <label><input type="checkbox" id="fxClocks" ${S.fx.clocks ? 'checked' : ''}> Launch clocks <span class="hint">live T-minus on milestones</span></label>
+          <label><input type="checkbox" id="fxStreaks" ${S.fx.streaks ? 'checked' : ''}> Streaks &amp; records <span class="hint">in Progress</span></label>
+        </div>
+        <div class="row" style="margin-top:13px">
+          <div class="field" style="margin:0;flex:0 0 170px"><label>Confetti</label>
+            <select class="select" id="fxBoom">
+              <option value="full" ${S.fx.boom !== 'gentle' ? 'selected' : ''}>Full burst</option>
+              <option value="gentle" ${S.fx.boom === 'gentle' ? 'selected' : ''}>Gentle</option>
+            </select></div>
+          <div class="field" style="margin:0;flex:0 0 170px"><label>Ambient dust</label>
+            <select class="select" id="fxDust">
+              <option value="subtle" ${S.fx.dust !== 'lively' ? 'selected' : ''}>Subtle</option>
+              <option value="lively" ${S.fx.dust === 'lively' ? 'selected' : ''}>Lively</option>
+            </select></div>
+          <span style="flex:1"></span>
+          <button class="btn btn-primary btn-sm" data-act="fx-save" style="align-self:flex-end"><svg><use href="#i-check"/></svg>Save look</button>
+        </div>
+      </div>
+
+      <div class="panel">
         <h3>Local data</h3>
         <div class="kv"><b>Card order</b><span>${Object.keys(S.order).length} board(s) remembered in this browser</span></div>
         <div class="kv"><b>Inspiration</b><span>${S.inspiration.length} references</span></div>
@@ -800,6 +839,7 @@ function loadDemo() {
 const TITLES = { board: 'Board', prs: 'Pull Requests', milestones: 'Milestones', ideas: 'Ideas', inspiration: 'Inspiration', assets: 'Assets', docs: 'Design Docs', progress: 'Progress', settings: 'Settings' };
 
 function render() {
+  if (S.clockTimer) { clearInterval(S.clockTimer); S.clockTimer = null; }
   $('#viewTitle').textContent = TITLES[S.view] || 'Board';
   $$('.nav-item').forEach(b => b.classList.toggle('is-active', b.dataset.view === S.view));
   $$('.view').forEach(v => v.hidden = v.id !== 'view-' + S.view);
@@ -813,7 +853,10 @@ function render() {
     });
   }
   else if (S.view === 'prs') { renderPRs(); loadChecks(); }
-  else if (S.view === 'milestones') renderMilestones();
+  else if (S.view === 'milestones') {
+    renderMilestones();
+    if (fxOn('clocks') && !S.clockTimer) S.clockTimer = setInterval(tickClocks, 1000);
+  }
   else if (S.view === 'ideas') renderIdeas();
   else if (S.view === 'assets') renderAssets();
   else if (S.view === 'inspiration') renderInspiration();
@@ -948,6 +991,15 @@ function wire() {
     }
     else if (act === 'cols-reset') { S.columns = JSON.parse(JSON.stringify(DEFAULT_COLUMNS)); store.set('columns', S.columns); renderSettings(); }
     else if (act === 'cols-labels') createStatusLabels();
+    else if (act === 'fx-save') {
+      S.fx = { ...S.fx,
+        confetti: $('#fxConfetti').checked, boom: $('#fxBoom').value,
+        covers: $('#fxCovers').checked, ambient: $('#fxAmbient').checked, dust: $('#fxDust').value,
+        clocks: $('#fxClocks').checked, streaks: $('#fxStreaks').checked };
+      store.set('fx', S.fx);
+      initAmbient();
+      toast('Look saved', 'ok'); render();
+    }
     else if (act === 'assets-save') {
       const [o, r] = $('#sAssetRepo').value.trim().split('/');
       if (!o || !r) { toast('Use the owner/repo form', 'err'); return; }
@@ -957,7 +1009,7 @@ function wire() {
     }
     else if (act === 'cache-clear') { cacheClear(); toast('Request cache cleared', 'ok'); renderSettings(); }
     else if (act === 'export') {
-      const blob = new Blob([JSON.stringify({ repos: S.repos, columns: S.columns, assets: S.assets, order: S.order, inspiration: S.inspiration }, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify({ repos: S.repos, columns: S.columns, assets: S.assets, order: S.order, inspiration: S.inspiration, fx: S.fx }, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = 'kea-mission-control-backup.json'; a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);

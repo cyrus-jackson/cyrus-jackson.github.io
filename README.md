@@ -17,6 +17,9 @@ A single-page project tracker that runs entirely in the browser and uses **GitHu
   same write, so measuring costs nothing; older cards are measured from GitHub's label history instead (one
   cached call each — Progress offers to fetch them all at once). Tasks that never visited In Progress fall back
   to created → done, and the UI marks those with a † rather than implying otherwise.
+- **Look & feel** — milestone burndowns, live T-minus countdowns, shipping streaks, card covers, ship-it
+  confetti and ambient dust. All of it is dressing over the same data, every piece has a toggle in
+  Settings → Look & feel, and motion yields to your OS reduce-motion setting.
 - **Images** — drop an image into any task or reference. It gets committed to `data/uploads/` here and linked by raw URL.
 - **Ideas** — a home for unformed game thinking, stored as issues labelled `idea` and **deliberately hidden
   from the board** so speculation never inflates the backlog. Each one still gets a number, comments and

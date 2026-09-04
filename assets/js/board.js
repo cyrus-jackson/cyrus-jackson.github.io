@@ -185,7 +185,7 @@ function renderFilters() {
 
 /* ---------- board ---------- */
 function cardHTML(i, links) {
-  const cover = firstImage(i.body);
+  const cover = fxOn('covers') ? firstImage(i.body) : null;
   const tp    = taskProgress(i.body);
   const prs   = (links[i.number] || []).slice(0, 3);
   const statusLabels = new Set(S.columns.map(c => c.label.toLowerCase()));
@@ -269,6 +269,13 @@ function renderBoard() {
 }
 
 /* ---------- moving cards ---------- */
+function celebrateCard(toCol, num) {
+  if (typeof document === 'undefined') return;
+  const el = document.querySelector(`[data-list="${toCol}"] [data-num="${num}"]`);
+  const box = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+  celebrate(box ? box.left + box.width / 2 : window.innerWidth / 2,
+            box ? box.top + box.height / 3 : window.innerHeight / 3);
+}
 function persistOrder(colId, nums) {
   const k = repoKey();
   S.order[k] = S.order[k] || {};
@@ -307,12 +314,13 @@ async function moveIssue(num, toCol, index) {
   if (body.body !== undefined) issue.body = body.body;
   renderBoard(); paintCounts();
 
-  if (S.demo) return;
+  if (S.demo) { if (body.state === 'closed') celebrateCard(toCol, num); return; }
   try {
     const { owner, repo } = repoNow();
     const r = await gh(`/repos/${owner}/${repo}/issues/${num}`, { method: 'PATCH', body });
     Object.assign(issue, r.data);
     toast(`#${num} → ${col.name}`, 'ok');
+    if (body.state === 'closed') celebrateCard(toCol, num);
   } catch (e) {
     Object.assign(issue, prev);
     renderBoard();

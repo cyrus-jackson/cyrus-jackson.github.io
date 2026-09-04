@@ -486,6 +486,7 @@ function msCardHTML(ms) {
         <h3>${esc(ms.title)}</h3>
         ${ms.state === 'closed' ? '<span class="pr-pill s-done">closed</span>' : ''}
         <span class="ms-due t-${due.tone}">${esc(due.text)}</span>
+        ${ms.due_on && fxOn('clocks') ? `<span class="tminus t-${due.tone}" data-due="${attr(ms.due_on)}" title="Live countdown to the due date">${esc(fmtCountdown(ms.due_on))}</span>` : ''}
       </div>
       <div class="ms-actions">
         <span class="ms-frac"><b>${st.done}</b>/${st.total}</span>
@@ -503,6 +504,8 @@ function msCardHTML(ms) {
       }).join('')}
       <span class="ms-pct">${st.pct}%</span>
     </div>
+
+    ${burndownHTML(st, ms)}
 
     <div class="ms-legend">
       ${S.columns.map(c => {
@@ -532,6 +535,50 @@ function msCardHTML(ms) {
       </div>`
       : `<div class="ms-clear">${st.total ? 'Everything in this milestone is done.' : 'No tasks assigned yet — pick some from Unassigned below.'}</div>`}
   </section>`;
+}
+
+// 30-day burndown of tasks remaining. Counts today's assignment, so tasks
+// filed into the milestone late make the past look flatter than it was —
+// the caption says so rather than pretending otherwise.
+function burndownHTML(st, ms) {
+  const total = st.total;
+  if (!total) return '';
+  const DAY = 864e5, N = 30;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const t0 = today.getTime() - (N - 1) * DAY;
+  const closedTimes = st.mine.filter(i => i.closed_at).map(i => +new Date(i.closed_at));
+  const pts = [];
+  for (let d = 0; d < N; d++) {
+    const end = t0 + (d + 1) * DAY;
+    pts.push(total - closedTimes.filter(t => t < end).length);
+  }
+  let ideal = null;
+  if (ms.due_on) {
+    const due = +new Date(ms.due_on);
+    if (due > t0 && pts[0] > 0) ideal = { x2: Math.min(N - 1, (due - t0) / DAY), y1: pts[0] };
+  }
+  const maxY = Math.max(total, pts[0], 1);
+  const W = 260, H = 84, P = 7;
+  const X = i => P + i / (N - 1) * (W - 2 * P);
+  const Y = v => P + (1 - v / maxY) * (H - 2 * P);
+  const line = pts.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+  return `<div class="burn" title="Open tasks, last 30 days: ${pts[0]} → ${pts[N - 1]}. Counts today's assignment.">
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      ${ideal ? `<line x1="${X(0).toFixed(1)}" y1="${Y(ideal.y1).toFixed(1)}" x2="${X(ideal.x2).toFixed(1)}" y2="${Y(0).toFixed(1)}" class="burn-ideal"/>` : ''}
+      <polyline points="${line}" class="burn-line"/>
+      <circle cx="${X(N - 1).toFixed(1)}" cy="${Y(pts[N - 1]).toFixed(1)}" r="3" class="burn-dot"/>
+    </svg>
+    <span class="burn-cap">30-day burndown</span>
+  </div>`;
+}
+
+function tickClocks() {
+  let any = false;
+  $$('#msWrap [data-due]').forEach(el => {
+    el.textContent = fmtCountdown(el.dataset.due);
+    any = true;
+  });
+  if (!any && S.clockTimer) { clearInterval(S.clockTimer); S.clockTimer = null; }
 }
 
 function renderMilestones() {
