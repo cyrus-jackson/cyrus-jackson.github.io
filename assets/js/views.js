@@ -88,6 +88,38 @@ function wireDropzone(zone, onUrl) {
 }
 
 /* ---------- task modal ---------- */
+function durLineHTML(issue) {
+  const span = spanOf(issue), est = estOf(issue);
+  let bit;
+  if (span !== null) {
+    bit = span.basis === 'work'
+      ? `Took <b>${fmtDur(span.days)}</b> in progress → done`
+      : `Took <b>${fmtDur(span.days)}</b> from created to done`;
+  } else {
+    const start = startedAtSync(issue);
+    bit = start && colOf(issue) !== (S.columns[0] || {}).id
+      ? `In progress <b>${fmtDur((Date.now() - new Date(start)) / 864e5)}</b> so far`
+      : `Open <b>${fmtDur(openDays(issue))}</b> so far`;
+  }
+  const base = span !== null ? span.days : null;
+  const cmp = est ? ` · estimated <b>${fmtDur(est)}</b>${base !== null ? ` (${(base / est).toFixed(1)}x)` : ''}` : '';
+  const note = span !== null && span.basis === 'lead'
+    ? ` <span style="color:var(--fg-faint)" title="This task never visited In Progress, so there is no work start to measure from.">· created → done</span>` : '';
+  return `<div class="dur-line" id="tDur">${bit}${cmp}${note}</div>`;
+}
+
+// After the modal paints, resolve the work start from label history (one
+// cached call) and upgrade the line in place when history knows more.
+function refineDurLine(issue) {
+  if (startedAtSync(issue) || !progressLabel() || S.demo || !S.token) return;
+  fetchWorkStart(issue).then(start => {
+    if (!start) return;
+    const el = $('#tDur');
+    if (el) el.outerHTML = durLineHTML(issue);
+    if (S.view === 'board') renderBoard();
+  });
+}
+
 async function openTask(num) {
   const issue = S.issues.find(i => i.number === num);
   if (!issue) return;
@@ -135,14 +167,7 @@ async function openTask(num) {
         </div>
       </div>
 
-      ${(() => {
-        const lead = leadDays(issue), est = estOf(issue);
-        const bit = lead !== null
-          ? `Took <b>${fmtDur(lead)}</b> from created to done`
-          : `Open <b>${fmtDur(openDays(issue))}</b> so far`;
-        const cmp = est ? ` · estimated <b>${fmtDur(est)}</b>${lead !== null ? ` (${(lead / est).toFixed(1)}x)` : ''}` : '';
-        return `<div class="dur-line">${bit}${cmp}</div>`;
-      })()}
+      ${durLineHTML(issue)}
       <div class="tabs"><button class="tab is-on" data-tab="view">Description</button><button class="tab" data-tab="edit">Edit</button></div>
       <div id="tView" class="md">${md(issue.body, { tasks: true })}</div>
       <textarea class="textarea" id="tBody" hidden style="min-height:190px">${esc(issue.body || '')}</textarea>
@@ -166,6 +191,8 @@ async function openTask(num) {
       <button class="btn btn-ghost" data-act="close">Cancel</button>
       <button class="btn btn-primary" id="tSave"><svg><use href="#i-check"/></svg>Save</button>
     </div>`, { wide: true });
+
+  refineDurLine(issue);
 
   const body = $('#tBody', m), view = $('#tView', m), drop = $('#tDrop', m);
 
@@ -480,8 +507,9 @@ function renderProgress() {
   // Days you actually shipped on, not days elapsed.
   const shipDays   = new Set(closed.map(i => dayKey(i.closed_at)));
   const perShipDay = shipDays.size ? closed.length / shipDays.size : 0;
-  const leads      = closed.map(leadDays).filter(x => x !== null && x >= 0);
-  const medLead    = median(leads);
+  const spans      = closed.map(i => ({ i, s: spanOf(i) })).filter(x => x.s && x.s.days >= 0);
+  const medSpan    = median(spans.map(x => x.s.days));
+  const unmeasured = closed.filter(i => !startedAtSync(i));
   const openTasks  = tasks.filter(i => i.state === 'open');
   const times      = closed.map(i => +new Date(i.closed_at));
   const spanDays   = times.length ? (Math.max(...times) - Math.min(...times)) / 864e5 : null;
@@ -500,10 +528,9 @@ function renderProgress() {
   }
   const stripMax = Math.max(1, ...strip.map(x => x.n));
 
-  const withEst   = closed.filter(i => estOf(i) && leadDays(i) !== null);
-  const estRatio  = withEst.length ? median(withEst.map(i => leadDays(i) / estOf(i))) : null;
-  const slowest   = [...closed].filter(i => leadDays(i) !== null)
-                      .sort((a, b) => leadDays(b) - leadDays(a)).slice(0, 5);
+  const withEst   = spans.filter(x => estOf(x.i));
+  const estRatio  = withEst.length ? median(withEst.map(x => x.s.days / estOf(x.i))) : null;
+  const slowest   = [...spans].sort((a, b) => b.s.days - a.s.days).slice(0, 5);
 
   $('#progWrap').innerHTML = `
     <div class="prog-wrap">
@@ -530,7 +557,7 @@ function renderProgress() {
           <div class="stat-row" style="margin-bottom:16px">
             <div class="stat"><b>${shipDays.size}</b><span class="lab">Days shipped on</span></div>
             <div class="stat"><b>${perShipDay ? perShipDay.toFixed(1) : '—'}</b><span class="lab">Tasks per those days</span></div>
-            <div class="stat"><b>${medLead !== null ? fmtDur(medLead) : '—'}</b><span class="lab">Median created → done</span></div>
+            <div class="stat"><b>${medSpan !== null ? fmtDur(medSpan) : '—'}</b><span class="lab">Median work time</span></div>
             <div class="stat"><b style="color:${backlogDays ? 'var(--accent)' : 'var(--fg-faint)'}">${backlogDays ? fmtDur(backlogDays) : '—'}</b><span class="lab">Backlog at that pace</span></div>
             <div class="stat"><b>${spanDays !== null ? fmtDur(spanDays) : '—'}</b><span class="lab">Span of done work</span></div>
           </div>
@@ -547,7 +574,8 @@ function renderProgress() {
             ${backlogDays ? `The ${openTasks.length} open task${openTasks.length === 1 ? '' : 's'} are about <b>${fmtDur(backlogDays)}</b> of shipping days${
               eta ? `, landing around <b>${eta.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</b> at your current rhythm` : ''}.`
               : 'Not enough history yet to project the backlog — that needs three closed tasks across two days.'}
-            <br><span style="color:var(--fg-faint)">“Created → done” is lead time, not cycle time: an issue records no moment when work started, so backlog sitting time is included.</span>
+            <br><span style="color:var(--fg-faint)">Work time runs from first entry into In Progress to close. The tracker stamps the start when you drag a card there; older cards are measured from label history${
+              unmeasured.length && progressLabel() ? ` — <button data-act="measure-work" style="background:none;border:none;padding:0;color:var(--accent);cursor:pointer;text-decoration:underline;font:inherit">measure ${unmeasured.length} unmeasured task${unmeasured.length === 1 ? '' : 's'}</button> (${unmeasured.length} API call${unmeasured.length === 1 ? '' : 's'}, then cached)` : ''}. Tasks that never visited In Progress fall back to created → done and are marked †.</span>
           </div>
 
           ${estRatio !== null ? `<div class="legend-row" style="margin-top:14px">
@@ -559,12 +587,12 @@ function renderProgress() {
           </div>` : `<div style="font-size:12px;color:var(--fg-faint);margin-top:14px">No estimates set yet — open a task and pick one in the Estimate field to start tracking estimate against actual.</div>`}
 
           ${slowest.length ? `<div style="margin-top:16px"><div class="micro" style="margin-bottom:7px">Longest to finish</div>
-            <div class="legend-row">${slowest.map(i => `
+            <div class="legend-row">${slowest.map(({ i, s }) => `
               <div class="legend-item" style="gap:9px">
                 <span class="mono" style="color:var(--fg-faint);min-width:44px">#${i.number}</span>
-                <span style="flex:1">${esc(i.title)}</span>
+                <span style="flex:1">${esc(i.title)}${s.basis === 'lead' ? '<sup title="Never visited In Progress — measured created → done">†</sup>' : ''}</span>
                 ${estOf(i) ? `<span class="dur est">~${fmtDur(estOf(i))}</span>` : ''}
-                <span class="v" style="min-width:56px">${fmtDur(leadDays(i))}</span>
+                <span class="v" style="min-width:56px" title="${s.basis === 'work' ? 'In progress → done' : 'Created → done'}">${fmtDur(s.days)}</span>
               </div>`).join('')}</div></div>` : ''}`
           : '<span style="color:var(--fg-faint)">Nothing closed yet, so there is no timing to report.</span>'}
       </div>
@@ -589,6 +617,22 @@ function renderProgress() {
           </div>`).join('') || '<span style="color:var(--fg-faint)">Nothing closed yet.</span>'}</div>
       </div>
     </div>`;
+}
+
+/* Resolve work starts for every closed task missing one, then repaint. One
+   timeline read each, ETag-cached afterwards, so the second visit is free. */
+async function measureWorkTime(btn) {
+  const missing = S.issues.filter(i => i.closed_at && !isIdea(i) && !startedAtSync(i));
+  if (!missing.length) { renderProgress(); return; }
+  if (btn) { btn.disabled = true; btn.textContent = `measuring 0/${missing.length}…`; }
+  let done = 0;
+  await Promise.allSettled(missing.map(i =>
+    fetchWorkStart(i).finally(() => {
+      done++;
+      if (btn) btn.textContent = `measuring ${done}/${missing.length}…`;
+    })));
+  renderProgress();
+  toast(`Measured ${missing.length} task${missing.length === 1 ? '' : 's'}`, 'ok');
 }
 
 /* ---------- settings ---------- */
@@ -863,6 +907,7 @@ function wire() {
     else if (act === 'idea-promote') openPromote(+el.dataset.num);
     else if (act === 'idea-tag') { S.ideaTag = el.dataset.tag; renderIdeas(); }
     else if (act === 'asset-dir') { S.assetDir = el.dataset.dir; renderAssets(); }
+    else if (act === 'measure-work') measureWorkTime(el);
     else if (act === 'devlog') openDevlog();
     else if (act === 'capture') openCapture();
     else if (act === 'goto-settings') go('settings');

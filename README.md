@@ -6,15 +6,17 @@ A single-page project tracker that runs entirely in the browser and uses **GitHu
 - **Pull Requests** — open, draft, merged and closed PRs with branch, author, and CI check status. PRs are auto-linked to the issue they mention (`Closes #41`) or to the issue number in their branch name (`feat/41-edge-flux`), and show up as pills on the card.
 - **Inspiration** — a customisable gallery of reference projects: link, image, tags, and a note on what exactly you want out of it. Synced as `data/inspiration.json` in this repo.
 - **Progress** — completed-per-week chart, column distribution, recent activity, and a **Time** panel: days you
-  actually shipped on (not days elapsed), tasks per those days, median created-to-done, the backlog expressed
+  actually shipped on (not days elapsed), tasks per those days, median work time, the backlog expressed
   in shipping days with a projected landing date, and a 30-day strip of which days had closes.
 - **Estimates** — GitHub issues have no estimate field, so an estimate is stored as an `est:<n>d` label: native,
-  visible and filterable on github.com, no extra API surface. Actual duration is never stored — it is derived
-  from `created_at` and `closed_at`, so it cannot go stale. Cards show what a task took (red if it ran well over
-  its estimate), and Progress reports how far your estimates run from reality.
+  visible and filterable on github.com, no extra API surface. Work time is never stored — it is derived, so it
+  cannot go stale. Cards show what a task took (red if it ran well over its estimate), and Progress reports how
+  far your estimates run from reality.
 
-  The derived figure is **lead time, not cycle time**: an issue records no moment when work started, so time
-  spent sitting in the backlog is counted. The UI says "created → done" rather than implying otherwise.
+  Work time runs **in progress → done**. Dragging a card to In Progress stamps an invisible start marker in the
+  same write, so measuring costs nothing; older cards are measured from GitHub's label history instead (one
+  cached call each — Progress offers to fetch them all at once). Tasks that never visited In Progress fall back
+  to created → done, and the UI marks those with a † rather than implying otherwise.
 - **Images** — drop an image into any task or reference. It gets committed to `data/uploads/` here and linked by raw URL.
 - **Ideas** — a home for unformed game thinking, stored as issues labelled `idea` and **deliberately hidden
   from the board** so speculation never inflates the backlog. Each one still gets a number, comments and

@@ -7,6 +7,10 @@
 /* ---------- shared task creation ---------- */
 async function createTask({ title, body = '', labels = [], col = 'todo' }) {
   const column = S.columns.find(c => c.id === col) || S.columns[0];
+  const prog = progressCol();
+  // Born in In Progress: no labeled event will ever exist, so stamp the
+  // work start the actuals measure from.
+  if (prog && column.id === prog.id) body = withStartMarker(body, new Date().toISOString());
   const payload = { title, body, labels: [...labels, column.label] };
   if (S.demo) {
     const issue = {

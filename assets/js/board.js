@@ -214,10 +214,11 @@ function cardHTML(i, links) {
           ? `<span class="stale" title="No activity for ${d} days">idle ${d}d</span>` : '';
       })()}
       ${(() => {
-        const lead = leadDays(i), est = estOf(i);
-        if (lead !== null) {
-          const over = est && lead > est * 1.25;
-          return `<span class="dur ${over ? 'over' : 'done'}" title="Created to done: ${lead.toFixed(1)} days${est ? ` · estimated ${est}d` : ''}">${fmtDur(lead)}</span>`;
+        const span = spanOf(i), est = estOf(i);
+        if (span !== null) {
+          const over = est && span.days > est * 1.25;
+          const basis = span.basis === 'work' ? 'In progress to done' : 'Created to done (never visited In Progress)';
+          return `<span class="dur ${over ? 'over' : 'done'}" title="${basis}: ${span.days.toFixed(1)} days${est ? ` · estimated ${est}d` : ''}">${fmtDur(span.days)}</span>`;
         }
         if (est) return `<span class="dur est" title="Estimate ${est}d · open ${Math.floor(openDays(i))} days">~${fmtDur(est)}</span>`;
         return '';
@@ -291,10 +292,19 @@ async function moveIssue(num, toCol, index) {
   const body = { labels: [...keep, col.label] };
   if (S.closeOnDone) body.state = toCol === 'done' ? 'closed' : 'open';
 
+  // First entry into In Progress starts the work clock. The marker rides the
+  // same PATCH, so measuring costs nothing — and it is an HTML comment, so
+  // the rendered description never shows it.
+  const prog = progressCol();
+  if (prog && toCol === prog.id && !startMarker(issue.body)) {
+    body.body = withStartMarker(issue.body, new Date().toISOString());
+  }
+
   // optimistic
-  const prev = { labels: issue.labels, state: issue.state };
+  const prev = { labels: issue.labels, state: issue.state, body: issue.body };
   issue.labels = body.labels.map(n => ({ name: n, color: (S.labels.find(l => l.name === n) || {}).color || '5a6470' }));
   if (body.state) issue.state = body.state;
+  if (body.body !== undefined) issue.body = body.body;
   renderBoard(); paintCounts();
 
   if (S.demo) return;

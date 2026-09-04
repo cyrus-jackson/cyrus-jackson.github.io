@@ -25,12 +25,15 @@ const DEFAULT_STALE_DAYS = 10;
 /* ---------- duration ----------
    GitHub issues carry no estimate field, so an estimate is stored as an
    `est:<n>d` label: native, visible on github.com, filterable there, and no
-   extra API surface. Actual duration is never stored — it is derived from
-   created_at and closed_at, so it cannot drift out of date.
+   extra API surface. Actual duration is never stored — it is derived, so it
+   cannot drift out of date.
 
-   That derived figure is created -> done, which is lead time, not cycle time.
-   An issue records no "work started" moment, so time spent sitting in the
-   backlog is included. The UI says "created to done" for that reason. */
+   Work time runs from first entry into In Progress to close (cycle time).
+   The start is stamped as an invisible `<!-- started: <iso> -->` marker the
+   moment a card is dragged to In Progress — same PATCH, no extra call — and
+   older cards are measured from GitHub's label history instead (see
+   fetchWorkStart). Anything that never visited In Progress falls back to
+   created -> done, and the UI says which basis each figure uses. */
 const EST_RE = /^est:(\d+(?:\.\d+)?)d$/i;
 const EST_CHOICES = [0.5, 1, 2, 3, 5, 8, 13];
 const estLabelName = d => `est:${d}d`;
@@ -43,6 +46,20 @@ function estOf(issue) {
   }
   return null;
 }
+
+// The In Progress column, by stable id — never by display name, which the
+// user is free to rename in Settings.
+const progressCol = () => (S.columns || []).find(c => c.id === 'progress') || null;
+const progressLabel = () => { const c = progressCol(); return c ? c.label : null; };
+
+const START_RE = /<!--\s*started:\s*(\S+?)\s*-->/;
+const startMarker = body => {
+  const m = START_RE.exec(String(body || ''));
+  const t = m ? Date.parse(m[1]) : NaN;
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+};
+const withStartMarker = (body, iso) =>
+  START_RE.test(String(body || '')) ? body : `${String(body || '').trimEnd()}\n\n<!-- started: ${iso} -->`;
 
 const leadDays = i => i.closed_at ? (new Date(i.closed_at) - new Date(i.created_at)) / 864e5 : null;
 const openDays = i => (Date.now() - new Date(i.created_at)) / 864e5;
@@ -116,6 +133,69 @@ const repoKey  = () => { const r = repoNow(); return r.owner + '/' + r.repo; };
 // Self-heal configs written while the duplicate `assets` key nulled them.
 if (!S.assets || !S.assets.owner) S.assets = { owner:'cyrus-jackson', repo:'cyrus-jackson.github.io', dir:'data/uploads', branch:'master' };
 const assetCfg = () => S.assets && S.assets.owner ? S.assets : { owner:'cyrus-jackson', repo:'cyrus-jackson.github.io', dir:'data/uploads', branch:'master' };
+
+// Work-start lookups resolved from the label timeline, so re-renders are
+// free. Keyed by repo + issue + the progress label in force at lookup time,
+// with the issue's updated_at so a newer timeline is re-read, not trusted.
+const startCache = store.get('starts', {});
+function startCacheSet(key, entry) {
+  startCache[key] = entry;
+  const keys = Object.keys(startCache);
+  if (keys.length > 400) keys.slice(0, keys.length - 400).forEach(k => delete startCache[k]);
+  store.set('starts', startCache);
+}
+const startKey = (issue, label) => `${repoKey()}#${issue.number}#${String(label).toLowerCase()}`;
+
+// Best-known work start without touching the network: the stamped marker,
+// then a cached timeline lookup. Null means unknown, not zero.
+function startedAtSync(issue) {
+  const marked = startMarker(issue.body);
+  if (marked) return marked;
+  const label = progressLabel();
+  if (!label) return null;
+  const hit = startCache[startKey(issue, label)];
+  if (hit && hit.upd === issue.updated_at && hit.start) return hit.start;
+  return null;
+}
+
+// One timeline read per issue, then cached. Finds the first `labeled` event
+// for the In Progress label — events arrive oldest-first, so a single page
+// is enough even when the tail is truncated. Issues created carrying the
+// label (seeded straight into a column) have no such event and resolve null,
+// which the callers render as a created -> done fallback.
+async function fetchWorkStart(issue) {
+  const marked = startMarker(issue.body);
+  if (marked) return marked;
+  const label = progressLabel();
+  if (!label || S.demo || !S.token) return null;
+  const key = startKey(issue, label);
+  const hit = startCache[key];
+  if (hit && hit.upd === issue.updated_at) return hit.start;
+  try {
+    const { owner, repo } = repoNow();
+    const r = await gh(`/repos/${owner}/${repo}/issues/${issue.number}/timeline?per_page=100`, {
+      headers: { Accept: 'application/vnd.github.mockingbird-preview+json' },
+    });
+    const ev = (r.data || []).find(e => e.event === 'labeled' &&
+      String((e.label || {}).name || '').toLowerCase() === label.toLowerCase());
+    const start = ev ? new Date(ev.created_at).toISOString() : null;
+    startCacheSet(key, { start, upd: issue.updated_at });
+    return start;
+  } catch { return null; }
+}
+
+// Preferred duration for a closed issue: work time when the start is known,
+// otherwise lead time. `basis` tells the UI which one it got.
+function spanOf(issue) {
+  if (!issue.closed_at) return null;
+  const start = startedAtSync(issue);
+  if (start) {
+    const d = (new Date(issue.closed_at) - new Date(start)) / 864e5;
+    if (d >= 0) return { days: d, basis: 'work' };
+  }
+  const lead = leadDays(issue);
+  return lead !== null ? { days: lead, basis: 'lead' } : null;
+}
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 

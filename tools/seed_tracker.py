@@ -37,6 +37,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 
@@ -333,6 +334,11 @@ def main():
             "body": t.get("body", "") + footer(t),
             "labels": [col["label"]] + ([est_label_name(d)] if d is not None else []),
         }
+        if col_id == "progress":
+            # Seeded straight into In Progress: no labeled event will ever
+            # exist, so stamp the work start the tracker measures from.
+            stamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+            body["body"] = body["body"].rstrip() + f"\n\n<!-- started: {stamp} -->"
         if milestone_no is not None:
             body["milestone"] = milestone_no
         try:
