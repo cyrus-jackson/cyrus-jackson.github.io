@@ -833,6 +833,32 @@ function asChecklist(body) {
   return lines.map(l => l.replace(/^(\s*)[-*+]\s+(?!\[[ xX]\])/, '$1- [ ] ')).join('\n');
 }
 
+/* Milestone-plan JSON: { "tasks": [{ "id", "title", "days", "track", "needs", "body" }] },
+   a bare [...] of such tasks, or { "milestones": [{ "tasks": [...] }]}.
+   "days" becomes the estimate (est:<n>d label) on import; id/track/needs are
+   kept as a header in the body so ordering info survives as real issues. */
+function parseMilestoneJson(text) {
+  let doc;
+  try { doc = JSON.parse(text); } catch { return null; }
+  const lists = Array.isArray(doc) ? [doc]
+    : Array.isArray(doc.tasks) ? [doc.tasks]
+    : Array.isArray(doc.milestones) ? doc.milestones.map(m => m.tasks).filter(Array.isArray)
+    : null;
+  if (!lists) return null;
+  const tasks = lists.flat();
+  if (!tasks.length || !tasks.every(t => t && typeof t.title === 'string' && t.title.trim())) return null;
+  return tasks.map(t => {
+    const days = parseFloat(t.days);
+    const needs = Array.isArray(t.needs) ? t.needs.filter(n => n !== undefined && n !== null && String(n).trim()) : [];
+    const head = [
+      [t.id ? String(t.id).trim() : '', Number.isFinite(days) && days > 0 ? `${days}d` : '', t.track ? `track ${String(t.track).trim()}` : ''].filter(Boolean).join(' · '),
+      needs.length ? `Needs: ${needs.map(String).join(', ')}` : '',
+    ].filter(Boolean).join('\n');
+    const body = [head, String(t.body || '').trim()].filter(Boolean).join('\n\n');
+    return { title: t.title.trim(), body, days: Number.isFinite(days) && days > 0 ? days : null };
+  });
+}
+
 function parseNotes(text) {
   const blocks = String(text || '').replace(/\r\n/g, '\n').split(/\n\s*\n/)
     .map(b => b.trim()).filter(Boolean);
@@ -879,13 +905,14 @@ function openImport() {
     try {
       const { owner, repo } = repoNow();
       const r = await ghGet(`/repos/${owner}/${repo}/contents/${$('#impPath', m).value.trim()}`);
-      blocks = parseNotes(b64dec(r.content));
+      const raw = b64dec(r.content);
+      blocks = parseMilestoneJson(raw) || parseNotes(raw);
       out.innerHTML = blocks.length ? `
-        <div class="micro" style="margin-bottom:8px">${blocks.length} block(s) found</div>
+        <div class="micro" style="margin-bottom:8px">${blocks.length} block(s) found${blocks.some(b => b.days) ? ' · estimates from milestone-plan <code>days</code>' : ''}</div>
         <div class="imp-list">${blocks.map((b, i) => `
           <label class="imp-row">
             <input type="checkbox" checked data-imp="${i}">
-            <div><b>${esc(b.title)}</b>${b.body ? `<span>${esc(b.body.slice(0, 180))}</span>` : ''}</div>
+            <div><b>${esc(b.title)}</b>${b.days ? ` <span class="dur est">~${esc(fmtDur(b.days))}</span>` : ''}${b.body ? `<span>${esc(b.body.slice(0, 180))}</span>` : ''}</div>
           </label>`).join('')}</div>
         <div class="field" style="margin-top:13px"><label>Import as</label>
           <select class="select" id="impCol" style="max-width:230px">
@@ -904,12 +931,19 @@ function openImport() {
     const picked = $$('[data-imp]', m).filter(c => c.checked).map(c => blocks[+c.dataset.imp]);
     const col = ($('#impCol', m) || {}).value || '__idea';
     const btn = $('#impGo', m); btn.disabled = true;
+    if (!S.demo && col !== '__idea') {
+      const ests = [...new Set(picked.map(b => b.days).filter(d => d))];
+      for (const d of ests) {
+        try { await ensureLabel(estLabelName(d), '5a6470', 'Kea Mission Control — estimate'); }
+        catch (e) { toast(`Estimate label: ${e.message}`, 'err'); btn.disabled = false; return; }
+      }
+    }
     let made = 0;
     for (const b of picked) {
       btn.textContent = `Creating ${made + 1}/${picked.length}…`;
       try {
         if (col === '__idea') await createIdea(b.title, b.body);
-        else await createTask({ title: b.title, body: b.body, col });
+        else await createTask({ title: b.title, body: b.body, col, labels: b.days ? [estLabelName(b.days)] : [] });
         made++;
       }
       catch (e) { toast(`${b.title}: ${e.message}`, 'err'); break; }

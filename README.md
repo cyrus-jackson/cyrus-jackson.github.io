@@ -46,7 +46,9 @@ A single-page project tracker that runs entirely in the browser and uses **GitHu
 - **Import loose notes** — Settings → *Import tasks from a file* reads something like `ideas.txt` and turns it
   into real tasks. It understands three shapes: a heading line ending in `:` takes the following paragraph as
   its description; a block of bullets becomes one task per bullet; bullets under a heading become a tickable
-  checklist inside that task.
+  checklist inside that task. A milestone-plan JSON file (`{ "tasks": [{ "id", "title", "days", "track",
+  "needs", "body" }] }`) is understood too: each task's `days` becomes its `est:<n>d` estimate label so the
+  Time panel tracks it, while id, track and needs are kept as a header in the description.
 - **Devlog** — Progress → *Devlog* builds a markdown summary of what shipped, merged and is in flight over a
   chosen window, ready to paste into a post.
 
