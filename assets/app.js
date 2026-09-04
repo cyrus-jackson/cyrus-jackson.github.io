@@ -19,7 +19,7 @@ const THEMES = [
 ];
 
 const IDEA_LABEL = 'idea';
-const STALE_DAYS = 10;
+const DEFAULT_STALE_DAYS = 10;
 
 const DEFAULT_COLUMNS = [
   { id:'todo',     name:'Todo',        label:'status:todo',        color:'#7d8ca3' },
@@ -44,6 +44,7 @@ const S = {
   columns : store.get('columns', DEFAULT_COLUMNS),
   assets  : store.get('assets', { owner:'cyrus-jackson', repo:'cyrus-jackson.github.io', dir:'data/uploads', branch:'master' }),
   closeOnDone: store.get('closeOnDone', true),
+  staleDays: store.get('staleDays', DEFAULT_STALE_DAYS),
   order   : store.get('order', {}),
   inspiration: store.get('inspiration', []),
   inspSha : null,
@@ -56,7 +57,11 @@ const S = {
   q       : '',
   filters : [],
   msFilter: '',
-  assets  : null,
+  assetList: null,
+  assetDir: '',
+  assetBranch: null,
+  assetTruncated: false,
+  assetErr: null,
   rate    : null,
   lastLoad: null,
   checksLoaded: false,
@@ -66,6 +71,9 @@ const S = {
 
 const repoNow  = () => S.repos[S.active] || S.repos[0] || { owner:'', repo:'' };
 const repoKey  = () => { const r = repoNow(); return r.owner + '/' + r.repo; };
+// Self-heal configs written while the duplicate `assets` key nulled them.
+if (!S.assets || !S.assets.owner) S.assets = { owner:'cyrus-jackson', repo:'cyrus-jackson.github.io', dir:'data/uploads', branch:'master' };
+const assetCfg = () => S.assets && S.assets.owner ? S.assets : { owner:'cyrus-jackson', repo:'cyrus-jackson.github.io', dir:'data/uploads', branch:'master' };
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
@@ -551,7 +559,8 @@ function cardHTML(i, links) {
       ${(() => {
         const d = idleDays(i);
         const mid = ['progress', 'review'].includes(colOf(i));
-        return mid && d >= STALE_DAYS
+        const limit = +S.staleDays > 0 ? +S.staleDays : DEFAULT_STALE_DAYS;
+        return mid && d >= limit
           ? `<span class="stale" title="No activity for ${d} days">idle ${d}d</span>` : '';
       })()}
       ${i.comments ? `<span title="comments">${i.comments} 💬</span>` : ''}
@@ -753,7 +762,7 @@ const modalHead = title => `
 async function uploadImage(file) {
   if (!S.token) throw new Error('Connect a GitHub token first (Settings)');
   if (file.size > 8 * 1024 * 1024) throw new Error('Image is larger than 8 MB');
-  const a = S.assets;
+  const a = assetCfg();
   const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '-').slice(-60);
   const path = `${a.dir}/${Date.now()}-${safe}`.replace(/^\/+/, '');
   const buf = await file.arrayBuffer();
@@ -1061,13 +1070,16 @@ const INSP_PATH = 'data/inspiration.json';
 
 async function loadInspiration() {
   if (!S.token) { S.inspiration = store.get('inspiration', S.inspiration); return; }
-  const a = S.assets;
+  const a = assetCfg();
   try {
     const r = await ghGet(`/repos/${a.owner}/${a.repo}/contents/${INSP_PATH}?ref=${encodeURIComponent(a.branch)}`);
     S.inspSha = r.sha;
     const remote = JSON.parse(b64dec(r.content));
     if (Array.isArray(remote)) { S.inspiration = remote; store.set('inspiration', remote); }
-  } catch (e) { if (e.status !== 404) console.warn('inspiration load:', e.message); }
+  } catch (e) {
+    // 404 = never synced yet (fresh clone, no data/inspiration.json). Stay local until first save.
+    if (e.status !== 404) console.warn('inspiration load:', e.message);
+  }
   paintCounts();
   if (S.view === 'inspiration') renderInspiration();
 }
@@ -1076,7 +1088,7 @@ async function saveInspiration() {
   store.set('inspiration', S.inspiration);
   paintCounts();
   if (!S.token) { toast('Saved in this browser — connect GitHub to sync across devices'); return; }
-  const a = S.assets;
+  const a = assetCfg();
   const body = { message: 'tracker: update inspiration board', content: b64enc(JSON.stringify(S.inspiration, null, 2)), branch: a.branch };
   if (S.inspSha) body.sha = S.inspSha;
   try {
@@ -1102,7 +1114,7 @@ function renderInspiration() {
         ${tags.map(t => `<button class="chip ${active === t ? 'is-on' : ''}" data-act="insp-tag" data-tag="${attr(t)}">${esc(t)}</button>`).join('')}
       </div>` : ''}
       <span style="flex:1"></span>
-      <span style="font-size:11.5px;color:var(--fg-faint)">${S.token ? 'Synced to ' + esc(S.assets.owner + '/' + S.assets.repo) : 'This browser only'}</span>
+      <span style="font-size:11.5px;color:var(--fg-faint)">${S.token ? 'Synced to ' + esc(assetCfg().owner + '/' + assetCfg().repo) : 'This browser only'}</span>
     </div>
     ${items.length ? `<div class="insp-grid" id="inspGrid" data-list="insp">${items.map(x => `
       <article class="insp" data-id="${attr(x.id)}">
@@ -1224,7 +1236,7 @@ function renderProgress() {
 
 /* ---------- settings ---------- */
 function renderSettings() {
-  const a = S.assets;
+  const a = assetCfg();
   $('#setWrap').innerHTML = `
     <div class="set-wrap">
       <div class="panel">
@@ -1274,6 +1286,10 @@ function renderSettings() {
         <label class="row" style="font-size:12.5px;color:var(--fg-dim);cursor:pointer">
           <input type="checkbox" id="sClose" ${S.closeOnDone ? 'checked' : ''} style="accent-color:var(--accent)">
           A closed issue means Done — and dragging a card to Done closes it
+        </label>
+        <label class="row" style="font-size:12.5px;color:var(--fg-dim);cursor:pointer;margin-top:8px">
+          Flag cards in Progress / Review as idle after
+          <input class="input mono" id="sStale" type="number" min="0" max="90" step="1" value="${attr(S.staleDays)}" style="width:64px;margin:0 6px"> days without activity
         </label>
         <div class="row" style="margin-top:13px">
           <button class="btn btn-primary btn-sm" data-act="cols-save"><svg><use href="#i-check"/></svg>Save columns</button>
@@ -1522,8 +1538,10 @@ function wire() {
         label: $(`[data-col-label="${i}"]`).value.trim() || c.label,
         color: $(`[data-col-color="${i}"]`).value }));
       S.closeOnDone = $('#sClose').checked;
-      store.set('columns', S.columns); store.set('closeOnDone', S.closeOnDone);
-      toast('Columns saved', 'ok'); renderSettings();
+      const stale = Math.max(0, Math.min(90, parseInt($('#sStale').value, 10) || 0)) || DEFAULT_STALE_DAYS;
+      S.staleDays = stale;
+      store.set('columns', S.columns); store.set('closeOnDone', S.closeOnDone); store.set('staleDays', S.staleDays);
+      toast('Columns saved', 'ok'); renderSettings(); renderBoard();
     }
     else if (act === 'cols-reset') { S.columns = JSON.parse(JSON.stringify(DEFAULT_COLUMNS)); store.set('columns', S.columns); renderSettings(); }
     else if (act === 'cols-labels') createStatusLabels();
@@ -1904,7 +1922,7 @@ function renderIdeas() {
           ${ideaTags(i).length ? `<div class="insp-tags">${ideaTags(i).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
           <div class="idea-actions">
             <button class="btn btn-ghost btn-sm" data-act="idea-promote" data-num="${i.number}"><svg><use href="#i-bolt"/></svg>Promote to task</button>
-            <button class="icon-btn" data-act="idea-open" data-num="${i.number}" title="Open"><svg><use href="#i-cog"/></svg></button>
+            <button class="icon-btn" data-act="idea-open" data-num="${i.number}" title="Open"><svg><use href="#i-external"/></svg></button>
           </div>
         </div>
       </article>`;
