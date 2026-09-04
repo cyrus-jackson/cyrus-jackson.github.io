@@ -1,7 +1,7 @@
-/* Kea Tracker - core.js | state, utils, markdown, API, themes, chrome. Loaded first. */
+/* Kea Mission Control - core.js | state, utils, markdown, API, themes, chrome. Loaded first. */
 'use strict';
 /* ============================================================
-   Kea Tracker — core
+   Kea Mission Control — core
    A static, GitHub-backed board. No build step, no backend.
    Part 1/4: state, utils, markdown, API, themes, chrome.
    ============================================================ */

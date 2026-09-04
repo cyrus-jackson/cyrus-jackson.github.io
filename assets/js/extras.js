@@ -1,4 +1,4 @@
-/* Kea Tracker - extras.js | quick capture, command palette, asset browser, ideas, milestones, docs reader, import, devlog. */
+/* Kea Mission Control - extras.js | quick capture, command palette, asset browser, ideas, milestones, docs reader, import, devlog. */
 /* ============================================================
    Part 4: quick capture, command palette, docs reader,
            ideas import, devlog

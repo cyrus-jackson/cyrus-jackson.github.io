@@ -1,4 +1,4 @@
-# Kea Tracker
+# Kea Mission Control
 
 A single-page project tracker that runs entirely in the browser and uses **GitHub as its database**.
 
@@ -162,7 +162,7 @@ JavaScript. It plays once on load, on hover, and continuously while the board is
 doubles as the loading indicator. `KEA.png` is the wordmark, used on Settings, on the not-connected empty
 state, and as the `og:image`.
 
-The cell size is written as literal pixels (`864px 36px` for 36px x 24 frames) rather than computed from
+The cell size is written as literal pixels (`1344px 56px` for 56px x 24 frames) rather than computed from
 custom properties. `calc(var(--s) * var(--n))` multiplies a length from `var()` by a unitless number from
 `var()`, which WebKit cannot type-check while parsing — it drops the declaration, `background-size` falls back
 to `auto`, and the mark disappears in Safari while working in Chromium. Change the cell size and you change
@@ -193,6 +193,9 @@ just crop, resize and assemble.
 
 The 24 source frames and the zip total **94 MB** and are gitignored; only the 470 KB of derivatives in
 `assets/logo/` and the master `KEA.png` are committed.
+
+The `localStorage` namespace stays `kea.tracker.` on purpose — renaming it would orphan every saved token,
+board order and setting in browsers that already have them.
 
 ## Keyboard
 

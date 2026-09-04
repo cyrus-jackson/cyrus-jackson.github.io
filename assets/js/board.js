@@ -1,4 +1,4 @@
-/* Kea Tracker - board.js | data loading, board, drag and drop, task modal. */
+/* Kea Mission Control - board.js | data loading, board, drag and drop, task modal. */
 /* ============================================================
    Part 2/3: data loading, board, drag & drop, task modal
    ============================================================ */
@@ -144,9 +144,16 @@ function visibleIssues() {
 function renderFilters() {
   const statusLabels = new Set(S.columns.map(c => c.label.toLowerCase()));
   const used = new Map();
-  for (const i of S.issues) for (const l of (i.labels || [])) {
-    const n = l.name || l; if (statusLabels.has(String(n).toLowerCase())) continue;
-    used.set(n, l.color || '888888');
+  // Only labels that can actually appear on a card. Ideas are excluded from the
+  // board, so offering their labels here would give a filter that matches nothing.
+  for (const i of S.issues) {
+    if (isIdea(i)) continue;
+    for (const l of (i.labels || [])) {
+      const n = l.name || l;
+      const low = String(n).toLowerCase();
+      if (statusLabels.has(low) || low === IDEA_LABEL) continue;
+      used.set(n, l.color || '888888');
+    }
   }
   const openMs = S.milestones.filter(m => m.state === 'open');
   const msPicker = (S.view === 'board' && openMs.length) ? `

@@ -1,4 +1,4 @@
-/* Kea Tracker - views.js | modals, PRs, inspiration, progress, settings, demo, router, actions, events, init. */
+/* Kea Mission Control - views.js | modals, PRs, inspiration, progress, settings, demo, router, actions, events, init. */
 /* ============================================================
    Part 3/3: modals, PRs, inspiration, progress, settings, init
    ============================================================ */
@@ -715,7 +715,7 @@ async function createStatusLabels() {
   for (const c of S.columns) {
     try {
       await gh(`/repos/${owner}/${repo}/labels`, { method: 'POST',
-        body: { name: c.label, color: String(c.color).replace('#', ''), description: `Kea Tracker — ${c.name}` } });
+        body: { name: c.label, color: String(c.color).replace('#', ''), description: `Kea Mission Control — ${c.name}` } });
       made++;
     } catch (e) { if (e.status !== 422) toast(`${c.label}: ${e.message}`, 'err'); }
   }
@@ -821,7 +821,7 @@ function wire() {
     else if (act === 'export') {
       const blob = new Blob([JSON.stringify({ repos: S.repos, columns: S.columns, assets: S.assets, order: S.order, inspiration: S.inspiration }, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob); a.download = 'kea-tracker-backup.json'; a.click();
+      a.href = URL.createObjectURL(blob); a.download = 'kea-mission-control-backup.json'; a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     }
     else if (act === 'wipe') {
