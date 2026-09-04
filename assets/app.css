@@ -915,3 +915,11 @@ body.is-loading .k-mark { animation: k-orbit .8s steps(24) infinite; }
 @media (prefers-reduced-motion: reduce) {
   .k-mark, .brand:hover .k-mark, body.is-loading .k-mark { animation: none !important; }
 }
+
+/* docs list is grouped by folder now that it walks the whole tree */
+.docs-group {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .09em; font-weight: 700;
+  color: var(--fg-faint); padding: 12px 10px 4px; word-break: break-all;
+}
+.docs-list > .docs-group:first-child { padding-top: 2px; }
+.docs-branch { width: 100%; padding: 6px 26px 6px 9px; font-size: 12px; background-size: 13px; }

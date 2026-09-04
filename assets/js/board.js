@@ -90,6 +90,7 @@ async function loadAll({ quiet = false, force = false } = {}) {
     $('#demoBanner')?.remove();
     S.lastLoad = { key: repoKey(), t: Date.now() };
     S.docs = null; S.docCache = {}; S.doc = null; S.assetList = null; S.assetDir = '';
+    S.branch = null; S.branches = null;
     S.checksLoaded = false;
     if (!quiet) toast(`Loaded ${S.issues.length} tasks · ${S.prs.length} PRs`, 'ok');
     if (S.view === 'prs') loadChecks();

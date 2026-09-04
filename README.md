@@ -19,8 +19,12 @@ A single-page project tracker that runs entirely in the browser and uses **GitHu
   its due date read as urgency rather than a date, and an explicit *what's left* list grouped by where each
   task actually sits. Unassigned tasks get a one-click dropdown to file them into a milestone. Milestones are
   real GitHub milestones, so anything you set here shows up on github.com and vice versa.
-- **Design Docs** — the markdown at your repo root (ARCHITECTURE, DESIGN, PALETTE, CHARACTERS…) rendered
-  in-app and searchable across every file at once. Hex codes render as colour swatches; click one to copy it.
+- **Design Docs** — every markdown file in the repository (ARCHITECTURE, DESIGN, PALETTE, CHARACTERS…) rendered
+  in-app, grouped by folder and searchable across every file at once. It walks the whole tree, so docs in a
+  `Documentation/` folder and nested READMEs are found, while Unity's `ProjectSettings/*.txt`, `Library/`,
+  `Temp/` and `node_modules/` are filtered out. A branch picker sits above the list, because design docs often
+  land on a feature branch before they reach the default one. Hex codes render as colour swatches; click one
+  to copy it.
 - **Six themes** — Kea Neon, Atompunk, Midnight, Terminal, Paper, Mist. Picker is bottom-left.
 
 ### Things that save keystrokes

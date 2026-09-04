@@ -88,7 +88,7 @@ function paletteItems() {
   S.repos.forEach((r, i) => push('Repository', `${r.owner}/${r.repo}`, '', () => {
     S.active = i; store.set('active', i); S.filters = []; paintRepos(); loadAll();
   }, 'i-github'));
-  for (const d of (S.docs || [])) push('Doc', d.name, '', () => { go('docs'); openDoc(d.path); }, 'i-doc');
+  for (const d of (S.docs || [])) push('Doc', d.path, '', () => { go('docs'); openDoc(d.path); }, 'i-doc');
   for (const i of S.issues.slice(0, 300)) {
     push('Task', `#${i.number} ${i.title}`, S.columns.find(c => c.id === colOf(i)).name, () => openTask(i.number), 'i-board');
   }
@@ -633,25 +633,81 @@ function openMilestoneEdit(number) {
 }
 
 /* ---------- design docs reader ---------- */
+
+/* Docs are found by walking the whole tree, not by listing the repo root.
+   KeaGame keeps its design docs in Documentation/, and nested READMEs live
+   under Sprites/ and tools/ — a root listing sees none of them. */
+const DOC_RE   = /\.(md|markdown)$/i;
+const TXT_RE   = /\.txt$/i;
+const DOC_NOISE = /(^|\/)(node_modules|Library|Temp|obj|Build|Builds|Logs|\.git)(\/|$)/i;
+
+function isDocPath(path) {
+  if (DOC_NOISE.test(path)) return false;
+  if (DOC_RE.test(path)) return true;
+  if (!TXT_RE.test(path)) return false;
+  // .txt is only a doc near the top or in a docs folder, so Unity's
+  // ProjectSettings/ProjectVersion.txt does not turn up as design material.
+  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+  return dir === '' || /^(documentation|docs|design|notes)(\/|$)/i.test(dir);
+}
+
+async function repoBranch() {
+  if (S.branch) return S.branch;
+  const { owner, repo } = repoNow();
+  try {
+    const info = await ghGet(`/repos/${owner}/${repo}`);
+    S.branch = info.default_branch || 'master';
+  } catch { S.branch = 'master'; }
+  return S.branch;
+}
+
+async function loadBranches() {
+  if (S.branches) return S.branches;
+  const { owner, repo } = repoNow();
+  try {
+    const bs = await ghGet(`/repos/${owner}/${repo}/branches?per_page=100`);
+    S.branches = (Array.isArray(bs) ? bs : []).map(b => b.name);
+  } catch { S.branches = []; }
+  return S.branches;
+}
+
 async function loadDocs() {
   if (!S.token) { S.docs = []; return; }
   const { owner, repo } = repoNow();
+  const branch = await repoBranch();
+  S.docErr = null;
   try {
-    const entries = await ghGet(`/repos/${owner}/${repo}/contents/`);
-    S.docs = (Array.isArray(entries) ? entries : [])
-      .filter(e => e.type === 'file' && /\.(md|markdown|txt)$/i.test(e.name))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map(e => ({ name: e.name, path: e.path, size: e.size }));
-  } catch { S.docs = []; }
+    const tree = await ghGet(`/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`);
+    S.docTruncated = !!(tree && tree.truncated);
+    S.docs = ((tree && tree.tree) || [])
+      .filter(n => n.type === 'blob' && isDocPath(n.path))
+      .map(n => ({
+        name: n.path.split('/').pop(),
+        path: n.path,
+        dir: n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : '',
+        size: n.size || 0,
+      }))
+      // root first, then shallowest folders, then alphabetical
+      .sort((a, b) =>
+        (a.dir === '' ? -1 : b.dir === '' ? 1 : 0) ||
+        a.dir.split('/').length - b.dir.split('/').length ||
+        a.dir.localeCompare(b.dir) ||
+        a.name.localeCompare(b.name));
+  } catch (e) {
+    S.docs = []; S.docErr = e.message;
+  }
+  paintCounts();
 }
 
 async function docBody(path) {
+  const branch = await repoBranch();
+  const key = branch + ':' + path;
   S.docCache = S.docCache || {};
-  if (S.docCache[path]) return S.docCache[path];
+  if (S.docCache[key]) return S.docCache[key];
   const { owner, repo } = repoNow();
-  const r = await ghGet(`/repos/${owner}/${repo}/contents/${path}`);
+  const r = await ghGet(`/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(branch)}`);
   const text = b64dec(r.content);
-  S.docCache[path] = text;
+  S.docCache[key] = text;
   return text;
 }
 
@@ -691,24 +747,56 @@ function renderDocs() {
   const docs = S.docs || [];
   if (!S.token) {
     $('#docsWrap').innerHTML = `<div class="empty"><svg><use href="#i-doc"/></svg><h3>Connect GitHub first</h3>
-      <p>This reads the markdown files at the root of the active repository so you can keep ARCHITECTURE, DESIGN and PALETTE open beside the board.</p></div>`;
+      <p>This reads every markdown file in the active repository so you can keep ARCHITECTURE, DESIGN and PALETTE open beside the board.</p></div>`;
     return;
   }
+
+  const groups = [];
+  for (const d of docs) {
+    const g = groups.find(x => x.dir === d.dir);
+    (g || (groups[groups.push({ dir: d.dir, items: [] }) - 1])).items.push(d);
+  }
+
   $('#docsWrap').innerHTML = `
     <div class="docs">
       <aside class="docs-nav">
         <div class="search docs-search"><svg><use href="#i-search"/></svg>
           <input id="docQ" type="search" placeholder="Search all docs…" value="${attr(S.docQ || '')}"></div>
-        <div class="docs-list">${docs.length ? docs.map(d => `
-          <button class="docs-item ${S.doc === d.path ? 'is-on' : ''}" data-doc="${attr(d.path)}">
-            <span>${esc(d.name)}</span><i>${(d.size || 0) >= 1024 ? Math.round(d.size / 1024) + 'k' : '<1k'}</i>
-          </button>`).join('') : '<div class="hint" style="padding:10px">No markdown at the repo root.</div>'}</div>
+        <select class="select docs-branch" id="docBranch" title="Branch to read">
+          <option value="${attr(S.branch || '')}">${esc(S.branch || 'default branch')}</option>
+        </select>
+        <div class="docs-list">${groups.length ? groups.map(g => `
+          ${g.dir ? `<div class="docs-group">${esc(g.dir)}</div>` : ''}
+          ${g.items.map(d => `
+            <button class="docs-item ${S.doc === d.path ? 'is-on' : ''}" data-doc="${attr(d.path)}" title="${attr(d.path)}">
+              <span>${esc(d.name)}</span><i>${d.size >= 1024 ? Math.round(d.size / 1024) + 'k' : '<1k'}</i>
+            </button>`).join('')}`).join('')
+          : `<div class="hint" style="padding:10px;line-height:1.6">${
+              S.docErr ? esc(S.docErr) : `No markdown found on <b>${esc(S.branch || '')}</b>. If your docs live on another branch, switch above.`}</div>`}
+        </div>
+        ${S.docTruncated ? '<div class="hint" style="padding:0 10px">Tree truncated by GitHub — some files may be missing.</div>' : ''}
       </aside>
       <article class="docs-body md" id="docPane">${
         S.doc ? '<div class="skel" style="height:60vh"></div>'
-              : `<div class="empty"><svg><use href="#i-doc"/></svg><h3>${docs.length} documents</h3>
+              : `<div class="empty"><svg><use href="#i-doc"/></svg><h3>${docs.length} document${docs.length === 1 ? '' : 's'} on ${esc(S.branch || '')}</h3>
                  <p>Pick one, or search across all of them at once. Hex codes render as swatches — click to copy.</p></div>`}</article>
     </div>`;
+
+  // branch list is only worth fetching once the reader is actually open
+  const bsel = $('#docBranch');
+  if (bsel) {
+    loadBranches().then(names => {
+      if (!names.length || !$('#docBranch')) return;
+      $('#docBranch').innerHTML = names.map(n =>
+        `<option value="${attr(n)}" ${n === S.branch ? 'selected' : ''}>${esc(n)}</option>`).join('');
+    });
+    bsel.onchange = () => {
+      S.branch = bsel.value;
+      S.docs = null; S.doc = null; S.docCache = {}; S.docQ = '';
+      renderDocs();
+      loadDocs().then(renderDocs);
+    };
+  }
 
   let t;
   const q = $('#docQ');
@@ -723,7 +811,7 @@ function renderDocs() {
       const hits = await docSearch(term);
       pane.innerHTML = hits.length ? `<div class="doc-hits">${hits.map(h => `
         <div class="doc-hit">
-          <button class="doc-hit-head" data-doc="${attr(h.doc.path)}">${esc(h.doc.name)}<i>${h.total} match${h.total === 1 ? '' : 'es'}</i></button>
+          <button class="doc-hit-head" data-doc="${attr(h.doc.path)}">${esc(h.doc.path)}<i>${h.total} match${h.total === 1 ? '' : 'es'}</i></button>
           ${h.found.map(f => `<div class="doc-hit-line"><span class="mono">${f.n}</span>${esc(f.l)}</div>`).join('')}
         </div>`).join('')}</div>`
         : '<div class="empty"><p>Nothing found.</p></div>';
