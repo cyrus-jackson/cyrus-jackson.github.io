@@ -162,6 +162,12 @@ JavaScript. It plays once on load, on hover, and continuously while the board is
 doubles as the loading indicator. `KEA.png` is the wordmark, used on Settings, on the not-connected empty
 state, and as the `og:image`.
 
+The cell size is written as literal pixels (`864px 36px` for 36px x 24 frames) rather than computed from
+custom properties. `calc(var(--s) * var(--n))` multiplies a length from `var()` by a unitless number from
+`var()`, which WebKit cannot type-check while parsing — it drops the declaration, `background-size` falls back
+to `auto`, and the mark disappears in Safari while working in Chromium. Change the cell size and you change
+all three numbers together.
+
 ### Rebuilding it
 
 The source frames were exported with the **transparency checkerboard baked into the pixels** — their alpha

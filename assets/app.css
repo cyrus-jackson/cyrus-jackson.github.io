@@ -872,21 +872,28 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 
 /* ---------- 18. BRAND ---------- */
 
-/* 24 frames in one strip. Sizing the background to (cell x count) means each
-   frame occupies exactly one element width, so steps(24) lands on frame
-   boundaries at any --s without recomputing anything. */
+/* 24 frames in one horizontal strip, stepped with steps(24).
+
+   These sizes are deliberately literal. The previous version computed them as
+   calc(var(--s) * var(--n)), multiplying a length from var() by a unitless
+   number from var(). WebKit cannot type-check that during parsing and drops
+   the declaration, so background-size fell back to auto and the whole 2304px
+   strip was laid out inside a 36px box — the mark vanished in Safari while
+   working in Chromium. Literal values resolve identically in every engine.
+
+   36px cell x 24 frames = 864px. Change one, change all three. */
 .k-mark {
-  --n: 24;
-  --s: 36px;
-  width: var(--s); height: var(--s);
+  display: block;                 /* <i> is inline; do not rely on flex blockification */
+  width: 36px;
+  height: 36px;
   flex: none;
   background-image: url("logo/k-orbit-sprite.png");
   background-repeat: no-repeat;
-  background-size: calc(var(--s) * var(--n)) var(--s);
+  background-size: 864px 36px;
   background-position: 0 0;
   filter: drop-shadow(0 1px 4px rgba(0,0,0,.45));
 }
-@keyframes k-orbit { to { background-position: calc(-1 * var(--s) * var(--n)) 0; } }
+@keyframes k-orbit { to { background-position: -864px 0; } }
 
 .brand:hover .k-mark,
 .k-mark.is-spinning { animation: k-orbit 1.15s steps(24) infinite; }
