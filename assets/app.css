@@ -869,3 +869,42 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
   border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px;
 }
 .asset-big img { max-width: 100%; max-height: 58vh; object-fit: contain; display: block; margin: 0 auto; }
+
+/* ---------- 18. BRAND ---------- */
+
+/* 24 frames in one strip. Sizing the background to (cell x count) means each
+   frame occupies exactly one element width, so steps(24) lands on frame
+   boundaries at any --s without recomputing anything. */
+.k-mark {
+  --n: 24;
+  --s: 36px;
+  width: var(--s); height: var(--s);
+  flex: none;
+  background-image: url("logo/k-orbit-sprite.png");
+  background-repeat: no-repeat;
+  background-size: calc(var(--s) * var(--n)) var(--s);
+  background-position: 0 0;
+  filter: drop-shadow(0 1px 4px rgba(0,0,0,.45));
+}
+@keyframes k-orbit { to { background-position: calc(-1 * var(--s) * var(--n)) 0; } }
+
+.brand:hover .k-mark,
+.k-mark.is-spinning { animation: k-orbit 1.15s steps(24) infinite; }
+/* the logo doubles as the loading indicator */
+body.is-loading .k-mark { animation: k-orbit .8s steps(24) infinite; }
+
+.brand { cursor: default; }
+.brand:hover .brand-text b { color: var(--accent); }
+.brand-text b { transition: color .16s var(--ease); }
+
+.wordmark {
+  display: block; width: min(260px, 62%); height: auto;
+  margin: 0 auto 6px; opacity: .96;
+  filter: drop-shadow(0 3px 10px rgba(0,0,0,.35));
+}
+.set-wrap .wordmark { width: 200px; margin: 0 0 4px; }
+[data-theme="paper"] .wordmark, [data-theme="mist"] .wordmark { filter: drop-shadow(0 3px 10px rgba(60,50,30,.2)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .k-mark, .brand:hover .k-mark, body.is-loading .k-mark { animation: none !important; }
+}

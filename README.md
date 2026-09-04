@@ -154,6 +154,40 @@ Worth it if you ever share the board with someone else. Overkill for one person 
 
 ---
 
+## Logo
+
+The brand mark in the sidebar is the 24-frame orbiting **K**, shipped as a single horizontal sprite
+(`assets/logo/k-orbit-sprite.png`, 2304x96, **30 KB**) and stepped with CSS `steps(24)` — one request, no
+JavaScript. It plays once on load, on hover, and continuously while the board is fetching, so the logo
+doubles as the loading indicator. `KEA.png` is the wordmark, used on Settings, on the not-connected empty
+state, and as the `og:image`.
+
+### Rebuilding it
+
+The source frames were exported with the **transparency checkerboard baked into the pixels** — their alpha
+channel is fully opaque. `tools/build-logo.py` removes it and regenerates every derivative:
+
+```bash
+python3 tools/build-logo.py
+```
+
+Two things that make this harder than a colour key, both measured rather than guessed:
+
+- A plain neutral/bright key eats about **51% of the K's upright**, because the letterform carries near-white
+  highlight bands.
+- A border-connected flood fill leaves the checkerboard **trapped inside the orbit ellipse**, which never
+  touches the image edge.
+
+So it keys by *texture*: candidate pixels are grouped into connected components, and a component is treated as
+background only if its luminance alternates (std around 7 for a checkerboard, 1-3 for flat artwork). Edges are
+feathered and un-premultiplied against the measured background grey to kill the white fringe.
+
+If you ever re-export the frames **with real alpha**, this whole step becomes unnecessary — drop the keying and
+just crop, resize and assemble.
+
+The 24 source frames and the zip total **94 MB** and are gitignored; only the 470 KB of derivatives in
+`assets/logo/` and the master `KEA.png` are committed.
+
 ## Keyboard
 
 `⌘K` command palette · `c` quick capture · `/` search · `n` new task · `r` refresh · `Esc` close dialog

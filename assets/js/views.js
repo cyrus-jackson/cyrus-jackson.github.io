@@ -503,6 +503,7 @@ function renderSettings() {
   const a = assetCfg();
   $('#setWrap').innerHTML = `
     <div class="set-wrap">
+      <img class="wordmark" src="assets/logo/kea-wordmark-360.png" alt="Kea" width="360" height="238">
       <div class="panel">
         <h3>GitHub connection</h3>
         ${S.user ? `<div class="row" style="margin-bottom:13px">
@@ -848,6 +849,8 @@ function wire() {
 /* ---------- init ---------- */
 async function init() {
   applyTheme(store.get('theme', 'neon'));
+  const mark = $('#kMark');
+  if (mark) { mark.classList.add('is-spinning'); setTimeout(() => mark.classList.remove('is-spinning'), 1150); }
   paintThemes(); paintRepos(); paintConn();
   S.view = store.get('view', 'board');
   wire();

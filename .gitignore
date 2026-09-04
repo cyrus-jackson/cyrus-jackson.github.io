@@ -1,2 +1,10 @@
 .DS_Store
 node_modules/
+
+# Logo working files. The 24 source frames and the zip are 94 MB and are only
+# inputs to assets/logo/ — committing them would bloat a Pages repo for nothing.
+# KEA.png is kept as the master artwork.
+logo/**/frames/
+logo/**/_preview/
+logo/**/base.png
+logo/**/*.zip

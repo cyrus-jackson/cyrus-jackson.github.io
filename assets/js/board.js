@@ -37,6 +37,7 @@ const prState = p => p.draft ? 'draft' : p.merged_at ? 'merged' : p.state === 'c
 function setLoading(on) {
   S.loading = on;
   $('#btnRefresh').classList.toggle('is-spinning', on);
+  document.body.classList.toggle('is-loading', on);
 }
 
 function listPaths() {
@@ -233,6 +234,7 @@ function renderBoard() {
 
   if (!S.issues.length) {
     $('#board').innerHTML = `<div class="empty" style="width:100%">
+      ${S.token ? '' : '<img class="wordmark" src="assets/logo/kea-wordmark-360.png" alt="Kea" width="360" height="238">'}
       <svg><use href="#i-board"/></svg><h3>Nothing here yet</h3>
       <p>${S.token ? 'This repository has no issues. Create your first task with the New button.'
                    : 'Connect a GitHub token in Settings to load your real issues, or explore the demo data.'}</p></div>`;
