@@ -133,6 +133,27 @@ async function loadChecks() {
 }
 
 /* ---------- filtering ---------- */
+const SORTS = {
+  manual: 'Manual order',
+  updated: 'Recently updated',
+  new: 'Newest first',
+  old: 'Oldest first',
+  title: 'Title A–Z',
+  estdesc: 'Estimate high → low',
+  estasc: 'Estimate low → high',
+};
+const sortId = () => SORTS[S.sort] ? S.sort : 'manual';
+function sortCmp(id) {
+  switch (id) {
+    case 'updated': return (a, b) => new Date(b.updated_at) - new Date(a.updated_at);
+    case 'new': return (a, b) => b.number - a.number;
+    case 'old': return (a, b) => a.number - b.number;
+    case 'title': return (a, b) => String(a.title).localeCompare(String(b.title));
+    case 'estdesc': return (a, b) => (estOf(b) ?? -1) - (estOf(a) ?? -1);
+    case 'estasc': return (a, b) => (estOf(a) ?? Infinity) - (estOf(b) ?? Infinity);
+    default: return null;
+  }
+}
 function visibleIssues() {
   const q = S.q.trim().toLowerCase();
   return S.issues.filter(i => {
@@ -173,14 +194,20 @@ function renderFilters() {
       <option value="none" ${S.msFilter === 'none' ? 'selected' : ''}>No milestone</option>
     </select>` : '';
 
-  const show = S.view === 'board' && (used.size || openMs.length);
-  $('#filters').innerHTML = !show ? '' : msPicker +
+  const show = S.view === 'board';
+  const sortPicker = S.view === 'board' ? `
+    <select class="select filter-ms" id="sortPick" title="Card order">
+      ${Object.entries(SORTS).map(([v, t]) => `<option value="${v}" ${sortId() === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+    </select>${sortId() !== 'manual' ? '<span class="hint">Sorted — switch to Manual order to drag cards</span>' : ''}` : '';
+  $('#filters').innerHTML = !show ? '' : sortPicker + msPicker +
     [...used].slice(0, 14).map(([n, c]) =>
       `<button class="chip ${S.filters.includes(n) ? 'is-on' : ''}" data-act="filter" data-label="${attr(n)}">
          <i class="sw" style="background:#${esc(c)}"></i>${esc(n)}</button>`).join('')
     + (S.filters.length ? `<button class="chip" data-act="filter-clear">Clear</button>` : '');
   const msf = $('#msFilter');
   if (msf) msf.onchange = () => { S.msFilter = msf.value; renderBoard(); };
+  const sp = $('#sortPick');
+  if (sp) sp.onchange = () => { S.sort = sp.value; store.set('sort', S.sort); render(); };
 }
 
 /* ---------- board ---------- */
@@ -192,7 +219,7 @@ function cardHTML(i, links) {
   const labels = (i.labels || []).filter(l => !statusLabels.has(String(l.name || l).toLowerCase())).slice(0, 4);
   const done = i.state === 'closed';
   return `
-  <article class="card" data-num="${i.number}" tabindex="0">
+  <article class="card${i.number === S.lastCreated ? ' is-new' : ''}" data-num="${i.number}" tabindex="0">
     ${cover ? `<div class="card-cover"><img src="${attr(cover)}" alt="" loading="lazy" onerror="this.parentNode.remove()"></div>` : ''}
     <div class="card-top">
       <span class="card-num">#${i.number}</span>
@@ -238,15 +265,20 @@ function renderBoard() {
   for (const i of visibleIssues()) (groups[colOf(i)] = groups[colOf(i)] || []).push(i);
 
   const ord = S.order[repoKey()] || {};
+  const cmp = sortCmp(sortId());
   for (const c of S.columns) {
-    const idx = ord[c.id] || [];
-    groups[c.id].sort((a, b) => {
-      const ia = idx.indexOf(a.number), ib = idx.indexOf(b.number);
-      if (ia >= 0 && ib >= 0) return ia - ib;
-      if (ia >= 0) return -1;
-      if (ib >= 0) return 1;
-      return new Date(b.updated_at) - new Date(a.updated_at);
-    });
+    if (!cmp) {
+      const idx = ord[c.id] || [];
+      groups[c.id].sort((a, b) => {
+        const ia = idx.indexOf(a.number), ib = idx.indexOf(b.number);
+        if (ia >= 0 && ib >= 0) return ia - ib;
+        if (ia >= 0) return -1;
+        if (ib >= 0) return 1;
+        return new Date(b.updated_at) - new Date(a.updated_at);
+      });
+    } else {
+      groups[c.id].sort(cmp);
+    }
   }
   if (groups.done) groups.done = groups.done.slice(0, 40);
 
@@ -266,6 +298,7 @@ function renderBoard() {
       <p>${S.token ? 'This repository has no issues. Create your first task with the New button.'
                    : 'Connect a GitHub token in Settings to load your real issues, or explore the demo data.'}</p></div>`;
   }
+  S.lastCreated = null;
 }
 
 /* ---------- moving cards ---------- */

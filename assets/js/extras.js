@@ -22,6 +22,7 @@ async function createTask({ title, body = '', labels = [], col = 'todo' }) {
       comments: 0, html_url: '#', user: { login: 'you' },
     };
     S.issues.unshift(issue);
+    S.lastCreated = issue.number;
     return issue;
   }
   const { owner, repo } = repoNow();
@@ -31,6 +32,7 @@ async function createTask({ title, body = '', labels = [], col = 'todo' }) {
     r.data.state = 'closed';
   }
   S.issues.unshift(r.data);
+  S.lastCreated = r.data.number;
   return r.data;
 }
 
@@ -312,7 +314,7 @@ function renderIdeas() {
       const img = firstImage(i.body);
       const body = String(i.body || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').trim();
       return `
-      <article class="idea" data-num="${i.number}">
+      <article class="idea${i.number === S.lastCreated ? ' is-new' : ''}" data-num="${i.number}">
         ${img ? `<div class="idea-img" style="background-image:url('${attr(img)}')"></div>` : ''}
         <div class="idea-body">
           <div class="idea-top"><span class="mono">#${i.number}</span>${i.comments ? `<span class="mono">${i.comments} 💬</span>` : ''}
@@ -330,6 +332,7 @@ function renderIdeas() {
     : `<div class="empty"><svg><use href="#i-bulb"/></svg><h3>${all.length ? 'Nothing matches' : 'No ideas yet'}</h3>
        <p>Somewhere to put the half-thoughts — festivals, love interests, a mechanic you are not sure about — without them cluttering the board. Promote one when it becomes real work.</p>
        <button class="btn btn-primary" data-act="idea-new"><svg><use href="#i-plus"/></svg>Capture the first one</button></div>`}`;
+  S.lastCreated = null;
 }
 
 function openIdeaNew() {
@@ -369,12 +372,13 @@ async function createIdea(title, body, tags = []) {
     const issue = { number: Math.max(0, ...S.issues.map(i => i.number)) + 1, title, body, state: 'open',
       labels: labels.map(n => ({ name: n, color: 'd9ae3f' })), created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(), closed_at: null, comments: 0, html_url: '#', user: { login: 'you' } };
-    S.issues.unshift(issue); return issue;
+    S.issues.unshift(issue); S.lastCreated = issue.number; return issue;
   }
   const { owner, repo } = repoNow();
   await ensureIdeaLabel();
   const r = await gh(`/repos/${owner}/${repo}/issues`, { method: 'POST', body: { title, body, labels } });
   S.issues.unshift(r.data);
+  S.lastCreated = r.data.number;
   return r.data;
 }
 
@@ -418,12 +422,14 @@ function openPromote(num) {
     if (msSel) body.milestone = +msSel;
     if (S.demo) {
       issue.labels = body.labels.map(n => ({ name: n, color: '5a6470' }));
+      S.lastCreated = num;
       closeModal(); render(); paintCounts(); return;
     }
     try {
       const { owner, repo } = repoNow();
       const r = await gh(`/repos/${owner}/${repo}/issues/${num}`, { method: 'PATCH', body });
       Object.assign(issue, r.data);
+      S.lastCreated = num;
       closeModal(); render(); paintCounts();
       toast(`#${num} is now a task in ${col.name}`, 'ok');
     } catch (e) { toast(e.message, 'err'); }

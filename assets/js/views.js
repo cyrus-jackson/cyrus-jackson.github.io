@@ -852,7 +852,8 @@ function render() {
   renderFilters();
   if (S.view === 'board') {
     renderBoard();
-    initDnD({
+    // Dragging only makes sense in manual order — a sorted board would fight it.
+    if (sortId() === 'manual') initDnD({
       root: $('#board'), itemSel: '.card', listSel: '.col-body', axisScroll: $('#board'),
       onDrop: (item, list) => moveIssue(+item.dataset.num, list.dataset.list),
     });

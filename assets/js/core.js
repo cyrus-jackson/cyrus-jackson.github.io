@@ -116,6 +116,8 @@ const S = {
   q       : '',
   filters : [],
   msFilter: '',
+  sort: store.get('sort', 'manual'),
+  lastCreated: null,
   assetList: null,
   assetDir: '',
   assetBranch: null,
