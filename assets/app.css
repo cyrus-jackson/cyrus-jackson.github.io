@@ -1006,3 +1006,35 @@ body.is-loading .k-mark { animation: k-orbit .8s steps(24) infinite; }
 .fx-grid label { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); cursor: pointer; }
 .fx-grid input { accent-color: var(--accent); }
 .fx-grid .hint { font-size: 11px; }
+
+/* ---------- 19. THE KEA ---------- */
+
+.pet {
+  display: flex; align-items: center; gap: 10px;
+  background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
+  padding: 6px 8px; cursor: pointer; text-align: left; width: 100%;
+}
+.pet:hover { border-color: var(--line-2); background: var(--surface); }
+.pet svg { width: 44px; height: 44px; flex: 0 0 auto; overflow: visible; animation: petBob 3.4s ease-in-out infinite; }
+.pet-name { font-size: 12px; font-weight: 600; color: var(--fg-dim); }
+.pet-perch { stroke: var(--fg-faint); stroke-width: 2; stroke-linecap: round; }
+.pet-body { fill: #6b8e4e; }
+.pet-wing { fill: #476030; }
+.pet-tail { fill: #476030; }
+.pet-beak { fill: #3a3f44; }
+.pet-feet { stroke: #3a3f44; stroke-width: 1.6; stroke-linecap: round; }
+.pet-eye-ball { fill: #14181d; }
+.pet-eye-glint { fill: #f7f5f0; }
+.pet-eye { transform-box: fill-box; transform-origin: center; animation: petBlink 5.5s infinite; }
+.pet-zzz { display: none; font-size: 10px; fill: var(--fg-faint); font-style: italic; }
+.pet.is-hop svg { animation: petHop .5s var(--ease); }
+.pet.is-grumpy svg { filter: saturate(.55); transform: rotate(-4deg); }
+.pet.is-sleeping .pet-eye { animation: none; transform: scaleY(.12); }
+.pet.is-sleeping .pet-zzz { display: block; animation: petZzz 2.6s ease-in-out infinite; }
+@keyframes petBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2.5px); } }
+@keyframes petHop { 0% { transform: translateY(0); } 40% { transform: translateY(-9px) rotate(3deg); } 100% { transform: translateY(0); } }
+@keyframes petBlink { 0%,93%,100% { transform: scaleY(1); } 96% { transform: scaleY(.08); } }
+@keyframes petZzz { 0% { opacity: 0; transform: translateY(2px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) {
+  .pet svg, .pet-eye, .pet.is-sleeping .pet-zzz { animation: none; }
+}

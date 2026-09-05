@@ -322,6 +322,7 @@ function celebrateCard(toCol, num) {
   const box = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
   celebrate(box ? box.left + box.width / 2 : window.innerWidth / 2,
             box ? box.top + box.height / 3 : window.innerHeight / 3);
+  feedPet();
 }
 function persistOrder(colId, nums) {
   const k = repoKey();

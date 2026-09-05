@@ -659,7 +659,9 @@ function renderSettings() {
         ${S.user ? `<div class="row" style="margin-bottom:13px">
             <img class="avatar" style="width:30px;height:30px" src="${attr(S.user.avatar_url)}" alt="">
             <b>${esc(S.user.login)}</b><span style="color:var(--ok);font-size:12px">connected</span>
-            <span style="flex:1"></span>
+          <div class="field" style="margin:0;flex:0 0 150px"><label>Kea's name</label>
+            <input class="input" id="fxPetName" value="${attr(S.pet.name)}" maxlength="24" style="max-width:150px"></div>
+          <span style="flex:1"></span>
             <button class="btn btn-danger btn-sm" data-act="disconnect">Disconnect</button></div>` : ''}
         <div class="field">
           <label>Fine-grained personal access token</label>
@@ -733,6 +735,7 @@ function renderSettings() {
           <label><input type="checkbox" id="fxAmbient" ${S.fx.ambient ? 'checked' : ''}> Ambient dust <span class="hint">slow drift behind everything</span></label>
           <label><input type="checkbox" id="fxClocks" ${S.fx.clocks ? 'checked' : ''}> Launch clocks <span class="hint">live T-minus on milestones</span></label>
           <label><input type="checkbox" id="fxStreaks" ${S.fx.streaks ? 'checked' : ''}> Streaks &amp; records <span class="hint">in Progress</span></label>
+          <label><input type="checkbox" id="fxPet" ${S.fx.pet !== false ? 'checked' : ''}> Sidebar kea <span class="hint">fed by shipped tasks</span></label>
         </div>
         <div class="row" style="margin-top:13px">
           <div class="field" style="margin:0;flex:0 0 170px"><label>Burst style</label>
@@ -913,6 +916,9 @@ function wire() {
   const drawer = open => { $('.sidebar').classList.toggle('open', open); $('#scrim').hidden = !open; };
   $('#btnMenu').onclick = () => drawer(!$('.sidebar').classList.contains('open'));
   $('#scrim').onclick = () => drawer(false);
+  const pet = $('#pet');
+  if (pet) pet.onclick = () => patPet();
+  paintPet();
   $('#nav').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) { go(b.dataset.view); drawer(false); } });
 
   $('#repoSelect').addEventListener('change', e => {
@@ -1000,9 +1006,11 @@ function wire() {
       S.fx = { ...S.fx,
         confetti: $('#fxConfetti').checked, boom: $('#fxBoom').value, boomStyle: $('#fxBoomStyle').value,
         covers: $('#fxCovers').checked, ambient: $('#fxAmbient').checked, dust: $('#fxDust').value,
-        clocks: $('#fxClocks').checked, streaks: $('#fxStreaks').checked };
+        clocks: $('#fxClocks').checked, streaks: $('#fxStreaks').checked, pet: $('#fxPet').checked };
       store.set('fx', S.fx);
-      initAmbient();
+      const petName = $('#fxPetName').value.trim().slice(0, 24);
+      if (petName) { S.pet.name = petName; savePet(); }
+      initAmbient(); paintPet();
       toast('Look saved', 'ok'); render();
     }
     else if (act === 'assets-save') {

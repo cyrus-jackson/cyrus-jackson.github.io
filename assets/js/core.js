@@ -508,7 +508,7 @@ function paintCounts() {
    merged over defaults so new toggles light up for existing browsers too.
    Motion (confetti, ambient dust) additionally yields to
    prefers-reduced-motion; static dressing (covers, clocks, streaks) does not. */
-const DEFAULT_FX = { confetti: true, boom: 'full', boomStyle: 'ticker', covers: true, ambient: true, dust: 'subtle', clocks: true, streaks: true };
+const DEFAULT_FX = { confetti: true, boom: 'full', boomStyle: 'ticker', covers: true, ambient: true, dust: 'subtle', clocks: true, streaks: true, pet: true };
 S.fx = { ...DEFAULT_FX, ...store.get('fx', {}) };
 
 const fxOn = name => !!(S.fx && S.fx[name]);
@@ -803,3 +803,69 @@ function shipStreaks(times) {
   return { current, longest, bestWeek: Math.max(...Object.values(weeks)), total: (times || []).length };
 }
 
+/* ---------- the kea ----------
+   A sidebar parrot fed by shipped tasks. Happiness decays 12/day away, a
+   close is +8, a pat is +2. All state is local; the bird knows nothing. */
+const DEFAULT_PET = { name: "Kiri", happy: 70, treats: 0, seen: null };
+S.pet = { ...DEFAULT_PET, ...store.get("pet", {}) };
+function applyPetDecay(now = Date.now()) {
+  if (S.pet.seen) {
+    const days = Math.floor((now - S.pet.seen) / 864e5);
+    if (days > 0) S.pet.happy = Math.max(0, S.pet.happy - days * 12);
+  }
+  S.pet.seen = now;
+  store.set("pet", S.pet);
+}
+applyPetDecay();
+
+const petSleeping = (h = new Date().getHours()) => h < 6;
+function petMood() {
+  if (petSleeping()) return "sleeping";
+  const h = S.pet.happy;
+  return h >= 70 ? "playful" : h >= 35 ? "content" : "grumpy";
+}
+const PET_TITLES = [[0, "Hatchling"], [10, "Fledgling"], [30, "Kea"], [75, "Alpine ace"]];
+const petTitle = () => { let t = PET_TITLES[0][1]; for (const [n, name] of PET_TITLES) if (S.pet.treats >= n) t = name; return t; };
+function savePet() { S.pet.seen = Date.now(); store.set("pet", S.pet); }
+// Shipping a task is a treat. Pats are affection with a cooldown.
+function feedPet(n = 8) {
+  S.pet.happy = Math.min(100, S.pet.happy + n);
+  S.pet.treats++;
+  savePet(); paintPet(true);
+}
+let lastPatToast = 0;
+function patPet() {
+  const el = typeof document !== "undefined" ? document.getElementById("pet") : null;
+  if (el && el.classList) {
+    el.classList.remove("is-hop");
+    void el.offsetWidth;
+    el.classList.add("is-hop");
+    setTimeout(() => el.classList && el.classList.remove("is-hop"), 550);
+  }
+  if (petSleeping()) { toast("Shhh — " + S.pet.name + " is asleep. Back after 6am."); return; }
+  const now = Date.now();
+  S.pet.happy = Math.min(100, S.pet.happy + 2);
+  savePet(); paintPet();
+  if (now - lastPatToast < 6000) return;
+  lastPatToast = now;
+  const lines = { playful: "does a loop-the-loop", content: "leans into it", grumpy: "tolerates this. Barely." };
+  toast(S.pet.name + " " + (lines[petMood()] || lines.content) + " · " + petTitle() + " · " + S.pet.treats + " treats");
+}
+function paintPet(bounce = false) {
+  if (typeof document === "undefined") return;
+  const el = document.getElementById("pet");
+  if (!el) return;
+  el.style.display = fxOn("pet") ? "" : "none";
+  const mood = petMood();
+  el.classList.toggle("is-sleeping", mood === "sleeping");
+  el.classList.toggle("is-grumpy", mood === "grumpy");
+  if (bounce && mood !== "sleeping") {
+    el.classList.remove("is-hop");
+    void el.offsetWidth;
+    el.classList.add("is-hop");
+    setTimeout(() => el.classList && el.classList.remove("is-hop"), 550);
+  }
+  const nm = document.getElementById("petName");
+  if (nm) nm.textContent = S.pet.name;
+  el.title = S.pet.name + " · " + petTitle() + " · " + mood + " · " + S.pet.treats + " treats (click to pat)";
+}
