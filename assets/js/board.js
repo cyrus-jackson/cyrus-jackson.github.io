@@ -205,13 +205,14 @@ function renderFilters() {
 }
 
 /* ---------- board ---------- */
-// Estimated days of work sitting in a column. Silent when nothing in the
-// column carries an estimate — unestimated boards keep clean headers.
-function colEstHTML(items) {
+// The column header badge: estimated days of work when the column carries
+// estimates, plain task count otherwise. The other figure is always one
+// hover away in the tooltip.
+function colHeadCount(items) {
   const ests = items.map(estOf).filter(e => e !== null);
-  if (!ests.length) return '';
+  if (!ests.length) return `<span class="n">${items.length}</span>`;
   const sum = Math.round(ests.reduce((a, b) => a + b, 0) * 10) / 10;
-  return `<span class="dur est" title="${ests.length} of ${items.length} estimated · ${sum}d total">~${fmtDur(sum)}</span>`;
+  return `<span class="n" title="${items.length} task${items.length === 1 ? '' : 's'} · ${ests.length} of ${items.length} estimated">~${fmtDur(sum)}</span>`;
 }
 function cardHTML(i, links) {
   const cover = fxOn('covers') ? firstImage(i.body) : null;
@@ -287,8 +288,7 @@ function renderBoard() {
   $('#board').innerHTML = S.columns.map(c => `
     <section class="col" data-col="${c.id}" style="--col:${c.color}">
       <div class="col-head">
-        <i class="col-bar"></i><h3>${esc(c.name)}</h3><span class="n">${groups[c.id].length}</span>
-        ${colEstHTML(groups[c.id])}
+        <i class="col-bar"></i><h3>${esc(c.name)}</h3>${colHeadCount(groups[c.id])}
         <select class="col-sort" data-colsort="${c.id}" title="Sort ${esc(c.name)}">
           ${Object.entries(SORTS).map(([v, t]) => `<option value="${v}" ${sortId(c.id) === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}
         </select>
