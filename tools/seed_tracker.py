@@ -21,6 +21,14 @@ Already seeded without estimates? Backfill just the missing labels:
     python3 tools/seed_tracker.py tools/milestones/m1.json --backfill-est --dry-run
     python3 tools/seed_tracker.py tools/milestones/m1.json --backfill-est
 
+Spec evolved since seeding? Sync existing issues up to it — missing est
+labels, unassigned milestones, and rewritten bodies with ticked boxes kept:
+
+    python3 tools/seed_tracker.py /path/to/m1.json --sync --dry-run
+    python3 tools/seed_tracker.py /path/to/m1.json --sync
+
+Run THIS copy (the tracker's tools/), not older copies without --sync.
+
 The token needs a fine-grained PAT on the target repository with:
     Metadata          Read
     Issues            Read and write
@@ -125,6 +133,35 @@ def est_label_name(days):
     return f"est:{days:g}d"
 
 
+TASK_RE = re.compile(r"^(\s*[-*+]\s+)\[([ xX])\](.*)$")
+
+
+def merge_body(current, spec):
+    """Rebase the spec body onto the live issue, keeping ticked boxes ticked.
+
+    Returns (merged, kept): the spec text with any box the issue already has
+    checked marked checked, plus how many ticks survived. Anything else in
+    the live body that is not in the spec is intentionally replaced — the
+    spec is the source of truth, ticks are the only live state.
+    """
+    checked = {}
+    for line in (current or "").splitlines():
+        m = TASK_RE.match(line)
+        if m and m.group(2).lower() == "x":
+            checked[re.sub(r"\s+", " ", (m.group(1) + m.group(3))).strip()] = m.group(2)
+    kept = 0
+    out = []
+    for line in (spec or "").splitlines():
+        m = TASK_RE.match(line)
+        if m and m.group(2) == " ":
+            key = re.sub(r"\s+", " ", (m.group(1) + m.group(3))).strip()
+            if key in checked:
+                line = f"{m.group(1)}[{checked[key]}]{m.group(3)}"
+                kept += 1
+        out.append(line)
+    return "\n".join(out), kept
+
+
 def has_est(labels):
     """True if any label name already carries an estimate."""
     return any(EST_RE.match(str(l.get("name", l) if isinstance(l, dict) else l or ""))
@@ -213,6 +250,9 @@ def main():
     p.add_argument("--due", help="milestone due date, YYYY-MM-DD")
     p.add_argument("--backfill-est", action="store_true",
                    help="add missing est:<n>d labels to issues this spec already created")
+    p.add_argument("--sync", action="store_true",
+                   help="bring existing issues up to the spec: missing est labels, "
+                        "missing milestone, rewritten bodies (ticked boxes kept)")
     p.add_argument("--delay", type=float, default=1.0,
                    help="seconds between issue writes (default 1.0)")
     p.add_argument("--dry-run", action="store_true",
@@ -229,8 +269,8 @@ def main():
             "with Metadata: Read and Issues: Read and write on this repository.\n"
             "Or preview without a token: --dry-run"
         )
-    if args.backfill_est and not token:
-        sys.exit(f"{RED}--backfill-est needs a token{RESET} to read existing issues.\n"
+    if (args.backfill_est or args.sync) and not token:
+        sys.exit(f"{RED}--backfill-est/--sync needs a token{RESET} to read existing issues.\n"
                  "Set GITHUB_TOKEN first; add --dry-run to preview without writing.")
 
     try:
@@ -250,7 +290,7 @@ def main():
                  f"Try one of: {', '.join(c['id'] for c in COLUMNS)}")
 
     mode = f"{YELLOW}DRY RUN{RESET} — nothing will be written" if args.dry_run else "writing"
-    action = "backfilling estimates for" if args.backfill_est else "seeding"
+    action = "syncing" if args.sync else "backfilling estimates for" if args.backfill_est else "seeding"
     print(f"\n{BOLD}{spec.get('milestone', {}).get('title', 'Tasks')}{RESET}")
     print(f"{DIM}{args.repo} · {len(tasks)} tasks · {action} · column {col['name']} "
           f"({col['label']}) · {mode}{RESET}\n")
@@ -288,7 +328,7 @@ def main():
         print(f"  {DIM}no token — showing the plan only, no duplicate check{RESET}")
 
     print()
-    created = skipped = refilled = failed = 0
+    created = skipped = refilled = synced = failed = 0
     writes = 0
     for n, t in enumerate(tasks, 1):
         title = t["title"]
@@ -297,6 +337,54 @@ def main():
         est = f" {DIM}{est_label_name(d)}{RESET}" if d is not None else ""
 
         if title in existing:
+            if args.sync:
+                cur = existing[title]
+                cur_labels = [l["name"] for l in cur.get("labels", [])]
+                want_labels = list(cur_labels)
+                est_needed = d is not None and not has_est(cur_labels)
+                if est_needed:
+                    want_labels.append(est_label_name(d))
+                ms_needed = milestone_no is not None and not cur.get("milestone")
+                merged, kept = merge_body(cur.get("body") or "", t.get("body", ""))
+                new_body = (merged + footer(t)).strip() + "\n"
+                body_changed = new_body.strip() != (cur.get("body") or "").strip()
+                patch = {}
+                if est_needed:
+                    patch["labels"] = want_labels
+                if ms_needed:
+                    patch["milestone"] = milestone_no
+                if body_changed:
+                    patch["body"] = new_body
+                if not patch:
+                    print(f"  {tag} {DIM}current{RESET} {title}")
+                    skipped += 1
+                    continue
+                bits = []
+                if est_needed:
+                    bits.append(est_label_name(d))
+                if ms_needed:
+                    bits.append("milestone")
+                if body_changed:
+                    bits.append(f"body ({kept} tick(s) kept)" if kept else "body")
+                if args.dry_run:
+                    print(f"  {tag} {YELLOW}would sync{RESET} {' + '.join(bits)}  {title}")
+                    synced += 1
+                    continue
+                try:
+                    api(token, "PATCH",
+                        f"/repos/{args.repo}/issues/{cur['number']}", patch)
+                    print(f"  {tag} {GREEN}synced{RESET} {' + '.join(bits)}  {title}")
+                    synced += 1
+                    writes += 1
+                except ApiError as e:
+                    print(f"  {tag} {RED}FAILED{RESET} {title}\n         {e.message}")
+                    failed += 1
+                    if e.status in (401, 403):
+                        print(f"\n{RED}Stopping — the token was rejected mid-run.{RESET}")
+                        break
+                if n < len(tasks):
+                    time.sleep(args.delay)
+                continue
             if args.backfill_est and d is not None and not has_est(existing[title].get("labels")):
                 if args.dry_run:
                     print(f"  {tag} {YELLOW}would add{RESET}{est} {title}")
@@ -361,10 +449,12 @@ def main():
     summary = f"\n{BOLD}{verb} {created}{RESET}, skipped {skipped}"
     if args.backfill_est:
         summary += f", {verb} {refilled} estimate(s)" if args.dry_run else f", backfilled {refilled} estimate(s)"
+    if args.sync:
+        summary += f", {verb} {synced} synced" if args.dry_run else f", synced {synced}"
     if failed:
         summary += f", {RED}failed {failed}{RESET}"
     print(summary)
-    if not args.dry_run and (created or refilled):
+    if not args.dry_run and (created or refilled or synced):
         print(f"{DIM}Open https://cyrus-jackson.github.io and press r to refresh.{RESET}")
     if failed:
         sys.exit(1)

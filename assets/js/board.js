@@ -205,6 +205,14 @@ function renderFilters() {
 }
 
 /* ---------- board ---------- */
+// Estimated days of work sitting in a column. Silent when nothing in the
+// column carries an estimate — unestimated boards keep clean headers.
+function colEstHTML(items) {
+  const ests = items.map(estOf).filter(e => e !== null);
+  if (!ests.length) return '';
+  const sum = Math.round(ests.reduce((a, b) => a + b, 0) * 10) / 10;
+  return `<span class="dur est" title="${ests.length} of ${items.length} estimated · ${sum}d total">~${fmtDur(sum)}</span>`;
+}
 function cardHTML(i, links) {
   const cover = fxOn('covers') ? firstImage(i.body) : null;
   const tp    = taskProgress(i.body);
@@ -280,6 +288,7 @@ function renderBoard() {
     <section class="col" data-col="${c.id}" style="--col:${c.color}">
       <div class="col-head">
         <i class="col-bar"></i><h3>${esc(c.name)}</h3><span class="n">${groups[c.id].length}</span>
+        ${colEstHTML(groups[c.id])}
         <select class="col-sort" data-colsort="${c.id}" title="Sort ${esc(c.name)}">
           ${Object.entries(SORTS).map(([v, t]) => `<option value="${v}" ${sortId(c.id) === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}
         </select>
