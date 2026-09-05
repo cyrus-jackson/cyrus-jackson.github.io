@@ -496,7 +496,7 @@ function paintCounts() {
    merged over defaults so new toggles light up for existing browsers too.
    Motion (confetti, ambient dust) additionally yields to
    prefers-reduced-motion; static dressing (covers, clocks, streaks) does not. */
-const DEFAULT_FX = { confetti: true, boom: 'full', covers: true, ambient: true, dust: 'subtle', clocks: true, streaks: true };
+const DEFAULT_FX = { confetti: true, boom: 'full', boomStyle: 'ticker', covers: true, ambient: true, dust: 'subtle', clocks: true, streaks: true };
 S.fx = { ...DEFAULT_FX, ...store.get('fx', {}) };
 
 const fxOn = name => !!(S.fx && S.fx[name]);
@@ -507,9 +507,97 @@ const raf = cb => (typeof requestAnimationFrame !== 'undefined'
 const caf = id => (typeof cancelAnimationFrame !== 'undefined' ? cancelAnimationFrame(id) : clearTimeout(id));
 
 /* Ship-it confetti: a fixed pointer-transparent canvas that lives only for
-   the burst, in the tracker's own accent palette. */
-const BOOM_COLORS = ['#60dcec', '#d9ae3f', '#c33f45', '#4ad6a0', '#8b7cf6', '#f7f5f0'];
+   the burst. Five styles, each with its own palette, shapes and physics —
+   pick one in Settings → Look & feel. */
+const BOOM_STYLES = {
+  ticker:   { name: 'Ticker tape',    colors: ['#60dcec', '#d9ae3f', '#c33f45', '#4ad6a0', '#8b7cf6', '#f7f5f0'] },
+  neon:     { name: 'Neon streaks',   colors: ['#60dcec', '#ff5df2', '#b6ff5d', '#ff9f5d', '#8b7cf6'] },
+  atompunk: { name: 'Atompunk sparks', colors: ['#d9ae3f', '#f2e8d5', '#c33f45', '#7d8ca3'] },
+  embers:   { name: 'Ember fountain', colors: ['#ffb347', '#ff7b2e', '#ff3d00', '#d9ae3f'] },
+  bubbles:  { name: 'Bubbles',        colors: ['#bfe9ff', '#f7f5f0', '#60dcec', '#4ad6a0'] },
+};
+const boomStyle = () => BOOM_STYLES[(S.fx && S.fx.boomStyle) || 'ticker'] || BOOM_STYLES.ticker;
 let boomCanvas = null, boomParts = [], boomRaf = 0;
+function spawnBoomPart(kind, x, y, i, colors) {
+  const pick = colors[i % colors.length];
+  const radial = () => { const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 6; return [Math.cos(a) * sp, Math.sin(a) * sp]; };
+  switch (kind) {
+    case 'neon': {
+      const a = Math.random() * Math.PI * 2, sp = 4 + Math.random() * 7;
+      return { kind: 'streak', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, g: 0.04, drag: 0.99,
+        life: 40 + Math.random() * 30, color: pick, size: 1.6 + Math.random() * 1.6, glow: 8 };
+    }
+    case 'atompunk': {
+      const [vx, vy] = radial();
+      return i % 3 === 0
+        ? { kind: 'star', x, y, vx, vy: vy - 2, g: 0.25, drag: 0.995, life: 55 + Math.random() * 35,
+            color: pick, size: 3 + Math.random() * 3, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.25 }
+        : { kind: 'dot', x, y, vx, vy: vy - 2, g: 0.25, drag: 0.995, life: 45 + Math.random() * 30,
+            color: pick, size: 1.2 + Math.random() * 1.8 };
+    }
+    case 'embers': {
+      const life = 60 + Math.random() * 40;
+      return { kind: 'spark', x: x + (Math.random() - 0.5) * 12, y, vx: (Math.random() - 0.5) * 2.4,
+        vy: -(2 + Math.random() * 5), g: -0.02, drag: 0.985, life, maxLife: life,
+        color: pick, size: 1.5 + Math.random() * 2.5, glow: 6 };
+    }
+    case 'bubbles': {
+      const life = 80 + Math.random() * 50;
+      return { kind: 'bubble', x: x + (Math.random() - 0.5) * 30, y: y + (Math.random() - 0.5) * 16,
+        vx: (Math.random() - 0.5) * 0.8, vy: -(0.4 + Math.random() * 0.9), g: -0.015, drag: 1,
+        life, color: pick, size: 2 + Math.random() * 5, ph: Math.random() * 6.28 };
+    }
+    default: {
+      const [vx, vy] = radial();
+      return { kind: 'rect', x, y, vx, vy: vy - 3.2, g: 0.22, drag: 1, life: 50 + Math.random() * 40,
+        color: pick, size: 2 + Math.random() * 3.5, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.3 };
+    }
+  }
+}
+function drawBoomStar(ctx, r) {
+  ctx.beginPath();
+  for (let k = 0; k < 10; k++) {
+    const rr = k % 2 ? r * 0.45 : r, a = k * Math.PI / 5 - Math.PI / 2;
+    ctx[k ? 'lineTo' : 'moveTo'](Math.cos(a) * rr, Math.sin(a) * rr);
+  }
+  ctx.closePath(); ctx.fill();
+}
+function drawBoomPart(ctx, p) {
+  ctx.globalAlpha = Math.min(1, p.life / 30);
+  switch (p.kind) {
+    case 'streak':
+      ctx.strokeStyle = p.color; ctx.lineWidth = Math.max(1, p.size * 0.7);
+      ctx.shadowBlur = p.glow || 0; ctx.shadowColor = p.color;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 2.2, p.y - p.vy * 2.2); ctx.stroke();
+      ctx.shadowBlur = 0;
+      break;
+    case 'star':
+      ctx.fillStyle = p.color;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot || 0); drawBoomStar(ctx, p.size); ctx.restore();
+      break;
+    case 'dot':
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.29); ctx.fill();
+      break;
+    case 'spark':
+      ctx.fillStyle = p.color;
+      ctx.shadowBlur = p.glow || 0; ctx.shadowColor = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.4, p.size * (p.life / (p.maxLife || p.life))), 0, 6.29); ctx.fill();
+      ctx.shadowBlur = 0;
+      break;
+    case 'bubble':
+      ctx.globalAlpha = Math.min(0.55, p.life / 40);
+      ctx.strokeStyle = p.color; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.29); ctx.stroke();
+      break;
+    default:
+      ctx.fillStyle = p.color;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot || 0);
+      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.62);
+      ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
 function celebrate(x, y) {
   if (!fxOn('confetti') || !motionOk() || typeof document === 'undefined') return;
   if (!boomCanvas) {
@@ -520,13 +608,10 @@ function celebrate(x, y) {
   }
   boomCanvas.width = window.innerWidth;
   boomCanvas.height = window.innerHeight;
+  const st = boomStyle();
+  const key = Object.keys(BOOM_STYLES).find(k => BOOM_STYLES[k] === st) || 'ticker';
   const n = (S.fx.boom || 'full') === 'full' ? 90 : 28;
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 6;
-    boomParts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 3.2, g: 0.22,
-      life: 50 + Math.random() * 40, color: BOOM_COLORS[i % BOOM_COLORS.length],
-      size: 2 + Math.random() * 3.5, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.3 });
-  }
+  for (let i = 0; i < n; i++) boomParts.push(spawnBoomPart(key, x, y, i, st.colors));
   if (!boomRaf) boomRaf = raf(boomTick);
 }
 function boomTick() {
@@ -543,13 +628,11 @@ function boomTick() {
   boomRaf = raf(boomTick);
   ctx.clearRect(0, 0, c.width, c.height);
   for (const p of boomParts) {
-    p.x += p.vx; p.y += p.vy; p.vy += p.g; p.rot += p.vr; p.life--;
-    ctx.save();
-    ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-    ctx.globalAlpha = Math.min(1, p.life / 30);
-    ctx.fillStyle = p.color;
-    ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.62);
-    ctx.restore();
+    p.x += p.vx + (p.kind === 'bubble' ? Math.sin(p.life / 9 + (p.ph || 0)) * 0.35 : 0);
+    p.y += p.vy; p.vy += p.g || 0; p.vx *= p.drag || 1;
+    if (p.rot !== undefined) p.rot += p.vr || 0;
+    p.life--;
+    drawBoomPart(ctx, p);
   }
 }
 

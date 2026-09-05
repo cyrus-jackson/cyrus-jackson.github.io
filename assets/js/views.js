@@ -735,7 +735,12 @@ function renderSettings() {
           <label><input type="checkbox" id="fxStreaks" ${S.fx.streaks ? 'checked' : ''}> Streaks &amp; records <span class="hint">in Progress</span></label>
         </div>
         <div class="row" style="margin-top:13px">
-          <div class="field" style="margin:0;flex:0 0 170px"><label>Confetti</label>
+          <div class="field" style="margin:0;flex:0 0 170px"><label>Burst style</label>
+            <select class="select" id="fxBoomStyle">
+              ${Object.entries(BOOM_STYLES).map(([id, s]) =>
+                `<option value="${id}" ${((S.fx.boomStyle || 'ticker') === id) ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+            </select></div>
+          <div class="field" style="margin:0;flex:0 0 150px"><label>Confetti amount</label>
             <select class="select" id="fxBoom">
               <option value="full" ${S.fx.boom !== 'gentle' ? 'selected' : ''}>Full burst</option>
               <option value="gentle" ${S.fx.boom === 'gentle' ? 'selected' : ''}>Gentle</option>
@@ -993,7 +998,7 @@ function wire() {
     else if (act === 'cols-labels') createStatusLabels();
     else if (act === 'fx-save') {
       S.fx = { ...S.fx,
-        confetti: $('#fxConfetti').checked, boom: $('#fxBoom').value,
+        confetti: $('#fxConfetti').checked, boom: $('#fxBoom').value, boomStyle: $('#fxBoomStyle').value,
         covers: $('#fxCovers').checked, ambient: $('#fxAmbient').checked, dust: $('#fxDust').value,
         clocks: $('#fxClocks').checked, streaks: $('#fxStreaks').checked };
       store.set('fx', S.fx);
