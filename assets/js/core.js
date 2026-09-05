@@ -117,6 +117,16 @@ const S = {
   filters : [],
   msFilter: '',
   sort: store.get('sort', 'manual'),
+  sorts: (() => {
+    const per = store.get('sorts', {});
+    if (per && Object.keys(per).length) return per;
+    // one-time migration from the old board-wide sort
+    const legacy = store.get('sort', 'manual');
+    if (legacy && legacy !== 'manual') {
+      return Object.fromEntries(store.get('columns', DEFAULT_COLUMNS).map(c => [c.id, legacy]));
+    }
+    return {};
+  })(),
   lastCreated: null,
   assetList: null,
   assetDir: '',
@@ -638,9 +648,12 @@ function boomTick() {
   }
 }
 
-/* Ambient dust: one fixed canvas behind the app, tinted per theme, drifting
-   slowly upward. Re-seeded on theme change; removed entirely when off. */
+/* Ambient background: one fixed canvas behind the app, re-seeded on theme
+   change, removed entirely when off. Most themes get tinted drifting dust;
+   atompunk gets the full treatment — brass orbit rings with travelling
+   electrons and four-point starbursts, the atomic-age furniture. */
 const DUST_TINTS = { neon: '#60dcec', atompunk: '#d9ae3f', midnight: '#8b7cf6', terminal: '#4ef08d', paper: '#1f6f7a', mist: '#2563eb' };
+const ATOM_TINTS = ['#d9ae3f', '#f2e8d5', '#b0762a', '#8a8f98'];
 let dustCanvas = null, dustParts = [], dustRaf = 0;
 function stopAmbient() {
   if (dustRaf) { caf(dustRaf); dustRaf = 0; }
@@ -650,6 +663,29 @@ function stopAmbient() {
     if (old && old.parentNode) old.parentNode.removeChild(old);
   }
   dustCanvas = null;
+}
+function seedDustDot(c, tint) {
+  return { kind: 'dot', x: Math.random() * c.width, y: Math.random() * c.height,
+    r: 0.4 + Math.random() * 1.3, vy: 0.06 + Math.random() * 0.22, ph: Math.random() * 6.28,
+    sp: 0.3 + Math.random() * 0.9, a: 0.12 + Math.random() * 0.3, tint };
+}
+function seedDustOrbit(c) {
+  // An atomic ring: tilted ellipse, nucleus, one electron on the wire.
+  const rx = 16 + Math.random() * 30;
+  return { kind: 'orbit', x: rx + Math.random() * Math.max(rx, c.width - rx * 2), y: Math.random() * c.height,
+    rx, ry: rx * (0.32 + Math.random() * 0.14), tilt: -0.45 + Math.random() * 0.9,
+    spin: (Math.random() - 0.5) * 0.0012, vy: 0.05 + Math.random() * 0.12,
+    ang: Math.random() * 6.28, espd: 0.008 + Math.random() * 0.02,
+    nuc: 1.4 + Math.random() * 1.4, el: 1 + Math.random() * 1.2,
+    ph: Math.random() * 6.28, a: 0.28 + Math.random() * 0.3,
+    tint: ATOM_TINTS[(Math.random() * ATOM_TINTS.length) | 0] };
+}
+function seedDustSparkle(c) {
+  // Four-point starburst that breathes rather than travels.
+  return { kind: 'sparkle', x: Math.random() * c.width, y: Math.random() * c.height,
+    r: 3 + Math.random() * 7, vy: 0.04 + Math.random() * 0.08, ph: Math.random() * 6.28,
+    sp: 0.5 + Math.random() * 1.1, a: 0.2 + Math.random() * 0.28,
+    tint: ATOM_TINTS[(Math.random() * ATOM_TINTS.length) | 0] };
 }
 function initAmbient() {
   stopAmbient();
@@ -662,12 +698,34 @@ function initAmbient() {
   c.width = window.innerWidth;
   c.height = window.innerHeight;
   dustCanvas = c;
-  const n = (S.fx.dust || 'subtle') === 'lively' ? 110 : 45;
-  const tint = DUST_TINTS[theme] || DUST_TINTS.neon;
-  for (let i = 0; i < n; i++) dustParts.push({ x: Math.random() * c.width, y: Math.random() * c.height,
-    r: 0.4 + Math.random() * 1.3, vy: 0.06 + Math.random() * 0.22, ph: Math.random() * 6.28,
-    sp: 0.3 + Math.random() * 0.9, a: 0.12 + Math.random() * 0.3, tint });
+  const lively = (S.fx.dust || 'subtle') === 'lively';
+  if (theme === 'atompunk') {
+    // Fewer, bigger pieces — orbits need room to read as orbits.
+    const n = lively ? 34 : 20, orbits = lively ? 22 : 13, sparkles = lively ? 7 : 4;
+    for (let i = 0; i < n; i++) {
+      dustParts.push(i < orbits ? seedDustOrbit(c) : i < orbits + sparkles ? seedDustSparkle(c)
+        : { ...seedDustDot(c, ATOM_TINTS[(Math.random() * ATOM_TINTS.length) | 0]), a: 0.1 + Math.random() * 0.2 });
+    }
+  } else {
+    const n = lively ? 110 : 45;
+    const tint = DUST_TINTS[theme] || DUST_TINTS.neon;
+    for (let i = 0; i < n; i++) dustParts.push(seedDustDot(c, tint));
+  }
   dustRaf = raf(dustTick);
+}
+function drawDustSparkle(ctx, p, tw) {
+  // Long thin diamond: the mid-century starburst in one path.
+  const r = p.r * (0.75 + 0.25 * tw);
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y - r); ctx.quadraticCurveTo(p.x, p.y, p.x + r * 0.22, p.y);
+  ctx.quadraticCurveTo(p.x, p.y, p.x, p.y + r);
+  ctx.quadraticCurveTo(p.x, p.y, p.x - r * 0.22, p.y);
+  ctx.quadraticCurveTo(p.x, p.y, p.x, p.y - r);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(p.x - r * 0.7, p.y); ctx.lineTo(p.x + r * 0.7, p.y);
+  ctx.moveTo(p.x, p.y - r * 0.7); ctx.lineTo(p.x, p.y + r * 0.7);
+  ctx.stroke();
 }
 function dustTick(t) {
   const c = dustCanvas;
@@ -677,11 +735,30 @@ function dustTick(t) {
   ctx.clearRect(0, 0, c.width, c.height);
   const now = (t || 0) / 1000;
   for (const p of dustParts) {
-    p.y -= p.vy; p.x += Math.sin(now * p.sp + p.ph) * 0.15;
-    if (p.y < -4) { p.y = c.height + 4; p.x = Math.random() * c.width; }
-    ctx.globalAlpha = p.a * (0.7 + 0.3 * Math.sin(now * p.sp * 1.7 + p.ph));
-    ctx.fillStyle = p.tint;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.29); ctx.fill();
+    const tw = 0.7 + 0.3 * Math.sin(now * (p.sp || 0.6) * 1.7 + p.ph);
+    if (p.kind === 'orbit') {
+      p.y -= p.vy; p.tilt += p.spin || 0; p.ang += p.espd;
+      if (p.y < -p.rx - 6) { p.y = c.height + p.rx + 6; p.x = Math.random() * c.width; }
+      const ex = p.x + Math.cos(p.ang) * p.rx, ey = p.y + Math.sin(p.ang) * p.ry;
+      ctx.globalAlpha = p.a * tw;
+      ctx.strokeStyle = p.tint; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, p.rx, p.ry, p.tilt, 0, 6.29); ctx.stroke();
+      ctx.fillStyle = p.tint;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.nuc, 0, 6.29); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex, ey, p.el, 0, 6.29); ctx.fill();
+    } else if (p.kind === 'sparkle') {
+      p.y -= p.vy;
+      if (p.y < -14) { p.y = c.height + 14; p.x = Math.random() * c.width; }
+      ctx.globalAlpha = p.a * tw;
+      ctx.strokeStyle = p.tint; ctx.lineWidth = 1;
+      drawDustSparkle(ctx, p, tw);
+    } else {
+      p.y -= p.vy; p.x += Math.sin(now * p.sp + p.ph) * 0.15;
+      if (p.y < -4) { p.y = c.height + 4; p.x = Math.random() * c.width; }
+      ctx.globalAlpha = p.a * tw;
+      ctx.fillStyle = p.tint;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.29); ctx.fill();
+    }
   }
   ctx.globalAlpha = 1;
 }

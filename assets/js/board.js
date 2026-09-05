@@ -142,7 +142,7 @@ const SORTS = {
   estdesc: 'Estimate high → low',
   estasc: 'Estimate low → high',
 };
-const sortId = () => SORTS[S.sort] ? S.sort : 'manual';
+const sortId = colId => SORTS[(S.sorts || {})[colId]] ? S.sorts[colId] : 'manual';
 function sortCmp(id) {
   switch (id) {
     case 'updated': return (a, b) => new Date(b.updated_at) - new Date(a.updated_at);
@@ -194,20 +194,14 @@ function renderFilters() {
       <option value="none" ${S.msFilter === 'none' ? 'selected' : ''}>No milestone</option>
     </select>` : '';
 
-  const show = S.view === 'board';
-  const sortPicker = S.view === 'board' ? `
-    <select class="select filter-ms" id="sortPick" title="Card order">
-      ${Object.entries(SORTS).map(([v, t]) => `<option value="${v}" ${sortId() === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}
-    </select>${sortId() !== 'manual' ? '<span class="hint">Sorted — switch to Manual order to drag cards</span>' : ''}` : '';
-  $('#filters').innerHTML = !show ? '' : sortPicker + msPicker +
+  const show = S.view === 'board' && (used.size || openMs.length);
+  $('#filters').innerHTML = !show ? '' : msPicker +
     [...used].slice(0, 14).map(([n, c]) =>
       `<button class="chip ${S.filters.includes(n) ? 'is-on' : ''}" data-act="filter" data-label="${attr(n)}">
          <i class="sw" style="background:#${esc(c)}"></i>${esc(n)}</button>`).join('')
     + (S.filters.length ? `<button class="chip" data-act="filter-clear">Clear</button>` : '');
   const msf = $('#msFilter');
   if (msf) msf.onchange = () => { S.msFilter = msf.value; renderBoard(); };
-  const sp = $('#sortPick');
-  if (sp) sp.onchange = () => { S.sort = sp.value; store.set('sort', S.sort); render(); };
 }
 
 /* ---------- board ---------- */
@@ -265,8 +259,8 @@ function renderBoard() {
   for (const i of visibleIssues()) (groups[colOf(i)] = groups[colOf(i)] || []).push(i);
 
   const ord = S.order[repoKey()] || {};
-  const cmp = sortCmp(sortId());
   for (const c of S.columns) {
+    const cmp = sortCmp(sortId(c.id));
     if (!cmp) {
       const idx = ord[c.id] || [];
       groups[c.id].sort((a, b) => {
@@ -286,6 +280,9 @@ function renderBoard() {
     <section class="col" data-col="${c.id}" style="--col:${c.color}">
       <div class="col-head">
         <i class="col-bar"></i><h3>${esc(c.name)}</h3><span class="n">${groups[c.id].length}</span>
+        <select class="col-sort" data-colsort="${c.id}" title="Sort ${esc(c.name)}">
+          ${Object.entries(SORTS).map(([v, t]) => `<option value="${v}" ${sortId(c.id) === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+        </select>
       </div>
       <div class="col-body" data-list="${c.id}">${groups[c.id].map(i => cardHTML(i, links)).join('')}</div>
       <button class="col-add" data-act="new" data-col="${c.id}"><svg><use href="#i-plus"/></svg>Add task</button>
@@ -299,6 +296,14 @@ function renderBoard() {
                    : 'Connect a GitHub token in Settings to load your real issues, or explore the demo data.'}</p></div>`;
   }
   S.lastCreated = null;
+  // Header sort pickers are rebuilt with every paint, so rewire them here.
+  // A sorted column ignores manual order; dropping into one still records the
+  // drop, and the column simply re-sorts around it.
+  $$('#board .col-sort').forEach(sel => sel.onchange = () => {
+    S.sorts = { ...(S.sorts || {}), [sel.dataset.colsort]: sel.value };
+    store.set('sorts', S.sorts);
+    renderBoard();
+  });
 }
 
 /* ---------- moving cards ---------- */
