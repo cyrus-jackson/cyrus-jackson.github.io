@@ -826,7 +826,7 @@ function petMood() {
   return h >= 70 ? "playful" : h >= 35 ? "content" : "grumpy";
 }
 const PET_TITLES = [[0, "Hatchling"], [10, "Fledgling"], [30, "Kea"], [75, "Alpine ace"]];
-const petTitle = () => { let t = PET_TITLES[0][1]; for (const [n, name] of PET_TITLES) if (S.pet.treats >= n) t = name; return t; };
+const petTitle = () => petTitleFor(petKind() === "droid" ? "droid" : "kea");
 function savePet() { S.pet.seen = Date.now(); store.set("pet", S.pet); }
 // Shipping a task is a treat. Pats are affection with a cooldown.
 function feedPet(n = 8) {
@@ -836,6 +836,7 @@ function feedPet(n = 8) {
 }
 let lastPatToast = 0;
 function patPet() {
+  if (petKind() === "droid") { boopDroid(); return; }
   const el = typeof document !== "undefined" ? document.getElementById("pet") : null;
   if (el && el.classList) {
     el.classList.remove("is-hop");
@@ -854,9 +855,10 @@ function patPet() {
 }
 function paintPet(bounce = false) {
   if (typeof document === "undefined") return;
+  paintDroid(bounce);
   const el = document.getElementById("pet");
   if (!el) return;
-  el.style.display = fxOn("pet") ? "" : "none";
+  el.style.display = (fxOn("pet") && petKind() === "kea") ? "" : "none";
   const mood = petMood();
   el.classList.toggle("is-sleeping", mood === "sleeping");
   el.classList.toggle("is-grumpy", mood === "grumpy");
@@ -882,7 +884,7 @@ function petFlightPath(w, h, n = 4) {
   return pts;
 }
 function shouldFlyPet() {
-  return fxOn("pet") && (S.fx && S.fx.wander !== false) && motionOk() && !petSleeping() &&
+  return fxOn("pet") && petKind() === "kea" && (S.fx && S.fx.wander !== false) && motionOk() && !petSleeping() &&
     typeof document !== "undefined" && !document.hidden && !petFlying;
 }
 function schedulePetFlight() {
@@ -934,4 +936,79 @@ function landPet(twin, perch) {
   setTimeout(() => { if (twin.parentNode) twin.parentNode.removeChild(twin); }, 450);
   perch.style.visibility = "";
   petFlying = false;
+}
+
+/* ---------- the droid ----------
+   The kea's stablemate: a round roller that patrols the bottom of the
+   screen instead of perching. Same happiness/treats ledger, different job —
+   shipping makes it spin, its antenna light shows its mood, and at night it
+   parks and dims. Pure CSS motion; JS only mounts it and spins it. */
+const PET_KINDS = { kea: "Kea parrot", droid: "Rollo roller" };
+function petKind() {
+  if (S.fx && S.fx.pet === false) return "off";
+  const k = S.pet && S.pet.kind;
+  return PET_KINDS[k] ? k : "kea";
+}
+const DROID_TITLES = [[0, "Bolt"], [10, "Roller"], [25, "Ranger"], [75, "High roller"]];
+function petTitleFor(kind) {
+  const ladder = kind === "droid" ? DROID_TITLES : PET_TITLES;
+  let t = ladder[0][1];
+  for (const [n, name] of ladder) if (S.pet.treats >= n) t = name;
+  return t;
+}
+function droidSVG() {
+  return '<svg viewBox="0 0 64 64" aria-hidden="true">' +
+    '<g class="droid-ball">' +
+    '<circle cx="32" cy="38" r="19" class="droid-shell"/>' +
+    '<path d="M13 38 a19 19 0 0 1 38 0" class="droid-band"/>' +
+    '<circle cx="32" cy="38" r="6.5" class="droid-hub"/>' +
+    '<circle cx="32" cy="38" r="2.4" class="droid-core"/>' +
+    '<circle cx="20" cy="30" r="2.6" class="droid-dot"/>' +
+    '<circle cx="44" cy="46" r="2.6" class="droid-dot"/>' +
+    '</g>' +
+    '<g class="droid-dome">' +
+    '<path d="M20 24 a12 12 0 0 1 24 0 Z" class="droid-dome-cap"/>' +
+    '<rect x="28" y="13" width="8" height="4" rx="1.5" class="droid-lens"/>' +
+    '<line x1="40" y1="12" x2="40" y2="5" class="droid-antenna"/>' +
+    '<circle cx="40" cy="4.5" r="1.8" class="droid-light"/>' +
+    '</g></svg>';
+}
+function paintDroid(bounce = false) {
+  if (typeof document === "undefined" || !document.body) return;
+  let el = document.getElementById("petDroid");
+  if (petKind() !== "droid") {
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    return;
+  }
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "petDroid";
+    el.setAttribute("aria-hidden", "false");
+    el.innerHTML = droidSVG() + '<span class="droid-name" id="petDroidName"></span>';
+    el.addEventListener("click", () => patPet());
+    document.body.appendChild(el);
+  }
+  const mood = petMood();
+  el.classList.toggle("is-sleeping", mood === "sleeping");
+  el.classList.toggle("mood-" + mood, true);
+  for (const m of ["playful", "content", "grumpy", "sleeping"]) if (m !== mood) el.classList.toggle("mood-" + m, false);
+  if (bounce && mood !== "sleeping") {
+    el.classList.remove("is-spin");
+    void el.offsetWidth;
+    el.classList.add("is-spin");
+    setTimeout(() => el.classList && el.classList.remove("is-spin"), 700);
+  }
+  const nm = document.getElementById("petDroidName");
+  if (nm) nm.textContent = S.pet.name;
+  el.title = S.pet.name + " · " + petTitleFor("droid") + " · " + mood + " · " + S.pet.treats + " charges (click to boop)";
+}
+function boopDroid() {
+  if (petSleeping()) { toast("Shhh — " + S.pet.name + " is parked for the night."); return; }
+  const now = Date.now();
+  S.pet.happy = Math.min(100, S.pet.happy + 2);
+  savePet(); paintDroid(true);
+  if (now - lastPatToast < 6000) return;
+  lastPatToast = now;
+  const beeps = ["Beep-boop!", "Bwoop-bee-doop!", "Beee-doo!"];
+  toast(beeps[S.pet.treats % beeps.length] + " · " + petTitle() + " · " + S.pet.treats + " charges");
 }

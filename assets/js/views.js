@@ -659,7 +659,12 @@ function renderSettings() {
         ${S.user ? `<div class="row" style="margin-bottom:13px">
             <img class="avatar" style="width:30px;height:30px" src="${attr(S.user.avatar_url)}" alt="">
             <b>${esc(S.user.login)}</b><span style="color:var(--ok);font-size:12px">connected</span>
-          <div class="field" style="margin:0;flex:0 0 150px"><label>Kea's name</label>
+          <div class="field" style="margin:0;flex:0 0 150px"><label>Pet species</label>
+            <select class="select" id="fxPetKind" style="max-width:150px">
+              ${Object.entries(PET_KINDS).map(([id, name]) =>
+                `<option value="${id}" ${petKind() === id ? 'selected' : ''}>${esc(name)}</option>`).join('')}
+            </select></div>
+          <div class="field" style="margin:0;flex:0 0 150px"><label>Pet's name</label>
             <input class="input" id="fxPetName" value="${attr(S.pet.name)}" maxlength="24" style="max-width:150px"></div>
           <span style="flex:1"></span>
             <button class="btn btn-danger btn-sm" data-act="disconnect">Disconnect</button></div>` : ''}
@@ -735,7 +740,7 @@ function renderSettings() {
           <label><input type="checkbox" id="fxAmbient" ${S.fx.ambient ? 'checked' : ''}> Ambient dust <span class="hint">slow drift behind everything</span></label>
           <label><input type="checkbox" id="fxClocks" ${S.fx.clocks ? 'checked' : ''}> Launch clocks <span class="hint">live T-minus on milestones</span></label>
           <label><input type="checkbox" id="fxStreaks" ${S.fx.streaks ? 'checked' : ''}> Streaks &amp; records <span class="hint">in Progress</span></label>
-          <label><input type="checkbox" id="fxPet" ${S.fx.pet !== false ? 'checked' : ''}> Sidebar kea <span class="hint">fed by shipped tasks</span></label>
+          <label><input type="checkbox" id="fxPet" ${petKind() !== 'off' ? 'checked' : ''}> Sidebar pet <span class="hint">kea or roller, fed by shipped tasks</span></label>
           <label><input type="checkbox" id="fxWander" ${S.fx.wander !== false ? 'checked' : ''}> Kea wanders <span class="hint">flies the screen now and then</span></label>
         </div>
         <div class="row" style="margin-top:13px">
@@ -1009,6 +1014,12 @@ function wire() {
         confetti: $('#fxConfetti').checked, boom: $('#fxBoom').value, boomStyle: $('#fxBoomStyle').value,
         covers: $('#fxCovers').checked, ambient: $('#fxAmbient').checked, dust: $('#fxDust').value,
         clocks: $('#fxClocks').checked, streaks: $('#fxStreaks').checked, pet: $('#fxPet').checked, wander: $('#fxWander').checked };
+      const kind = $('#fxPetKind').value;
+      if (PET_KINDS[kind] && kind !== S.pet.kind) {
+        S.pet.kind = kind;
+        // Fresh species, fresh default name — unless already renamed.
+        if (S.pet.name === 'Kiri' || S.pet.name === 'Rollo') S.pet.name = kind === 'droid' ? 'Rollo' : 'Kiri';
+      }
       store.set('fx', S.fx);
       const petName = $('#fxPetName').value.trim().slice(0, 24);
       if (petName) { S.pet.name = petName; savePet(); }
