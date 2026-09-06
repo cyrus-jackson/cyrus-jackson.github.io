@@ -437,6 +437,28 @@ function openPromote(num) {
 }
 
 /* ---------- milestones ---------- */
+// What each milestone is for, transcribed from ARCHITECTURE.md §17 (build
+// order). Matched by the M-number in the milestone title, so anything that
+// isn't one of these simply shows no aim line instead of a wrong one.
+const MILESTONE_AIMS = {
+  0:  { scope: 'asmdefs, tick loop, grid, chunked mesh renderer, camera, dig one tile', proves: 'The skeleton holds; rendering scales.' },
+  1:  { scope: 'Flooding/water slice + thermal solver, overlay shaders, benchmark harness', proves: 'The hard part works, reads clearly and hits budget.' },
+  2:  { scope: 'One member: nav grid, A*, task board, executes a dig order', proves: "The genre's core loop." },
+  3:  { scope: 'Power + water networks, a city tap, a server that draws power and makes heat', proves: 'Systems compose.' },
+  4:  { scope: 'Sensors + exposure + one cover identity. Heat you must hide.', proves: 'Whether the game is fun — the whole point.' },
+  5:  { scope: 'Save / load + migration chain', proves: 'Do not go past here without it.' },
+  6:  { scope: 'World generation: districts, strata, trunks, POI chunks', proves: 'The world is worth exploring.' },
+  7:  { scope: 'Room detection, construction verbs, stockpiles, resources', proves: 'The construction game.' },
+  8:  { scope: 'The full ventilation ladder + remaining sensors', proves: 'The strategic spine.' },
+  9:  { scope: 'Multiple members: needs, schedules, time off, skills, priorities, loyalty, light relationships', proves: 'It becomes a colony.' },
+  10: { scope: 'Art pipeline: palette enforcement, atlas packing, skeletal rig', proves: 'The look is reproducible.' },
+  11: { scope: 'Four lighting states, animated objects, city backdrop, weather, audio', proves: 'The atmosphere.' },
+  12: { scope: 'Content: buildings, covers, contacts, operations, escalation', proves: 'Depth.' },
+};
+function msAim(ms) {
+  const m = /\bM(\d{1,2})\b/i.exec(String((ms && ms.title) || ''));
+  return m ? MILESTONE_AIMS[+m[1]] || null : null;
+}
 function msStats(ms) {
   const mine = S.issues.filter(i => i.milestone && i.milestone.number === ms.number);
   const byCol = {};
@@ -474,7 +496,7 @@ function msPace(st) {
 }
 
 function msCardHTML(ms) {
-  const st = msStats(ms), due = msDue(ms), pace = msPace(st);
+  const st = msStats(ms), due = msDue(ms), pace = msPace(st), aim = msAim(ms);
   const open = S.columns.filter(c => c.id !== 'done');
   const verdict = (() => {
     if (!pace || !due.days) return null;
@@ -522,6 +544,7 @@ function msCardHTML(ms) {
     </div>
 
     ${verdict ? `<div class="ms-verdict t-${verdict.tone}">${esc(verdict.text)}</div>` : ''}
+    ${aim ? `<div class="ms-aim" title="${attr(aim.scope)}"><span>Aims to prove</span> ${esc(aim.proves)}</div>` : ''}
     ${ms.description ? `<p class="ms-desc">${esc(ms.description)}</p>` : ''}
 
     ${st.remaining ? `
