@@ -1003,6 +1003,34 @@ function wire() {
     else if (act === 'ms-new') openMilestoneEdit(null);
     else if (act === 'ms-edit') openMilestoneEdit(+el.dataset.ms);
     else if (act === 'ms-open') openTask(+el.dataset.num);
+    else if (act === 'ms-fold') {
+      const n = +el.dataset.ms;
+      S.msFold = { ...(S.msFold || {}) };
+      if (S.msFold[n]) delete S.msFold[n]; else S.msFold[n] = true;
+      store.set('msFold', S.msFold);
+      // Direct DOM flip — no re-render, so assign dropdowns keep their state.
+      const card = $(`#ms-${n}`);
+      const bodyEl = card && $('.ms-body', card);
+      if (bodyEl) {
+        bodyEl.hidden = !bodyEl.hidden;
+        const glyph = $('.fold-glyph', el);
+        if (glyph) glyph.classList.toggle('is-shut', bodyEl.hidden);
+        el.title = bodyEl.hidden ? 'Expand' : 'Collapse';
+      } else {
+        renderMilestones();
+      }
+    }
+    else if (act === 'ms-goto') {
+      const n = +el.dataset.ms;
+      if ((S.msFold || {})[n]) {
+        S.msFold = { ...(S.msFold || {}) };
+        delete S.msFold[n];
+        store.set('msFold', S.msFold);
+        renderMilestones();
+      }
+      const card = $(`#ms-${n}`);
+      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     else if (act === 'idea-new') openIdeaNew();
     else if (act === 'idea-open') openTask(+el.dataset.num);
     else if (act === 'idea-promote') openPromote(+el.dataset.num);

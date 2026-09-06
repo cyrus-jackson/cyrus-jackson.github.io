@@ -508,9 +508,12 @@ function msCardHTML(ms) {
   })();
 
   return `
-  <section class="ms ${ms.state === 'closed' ? 'is-closed' : ''}">
+  <section class="ms ${ms.state === 'closed' ? 'is-closed' : ''}" id="ms-${ms.number}">
     <header class="ms-head">
       <div class="ms-title">
+        <button class="icon-btn ms-fold" data-act="ms-fold" data-ms="${ms.number}" title="${(S.msFold || {})[ms.number] ? 'Expand' : 'Collapse'}">
+          <span class="fold-glyph${(S.msFold || {})[ms.number] ? ' is-shut' : ''}">▾</span>
+        </button>
         <h3>${esc(ms.title)}</h3>
         ${ms.state === 'closed' ? '<span class="pr-pill s-done">closed</span>' : ''}
         <span class="ms-due t-${due.tone}">${esc(due.text)}</span>
@@ -523,6 +526,7 @@ function msCardHTML(ms) {
       </div>
     </header>
 
+    <div class="ms-body"${(S.msFold || {})[ms.number] ? ' hidden' : ''}>
     <div class="ms-bar" role="progressbar" aria-valuenow="${st.pct}" aria-valuemin="0" aria-valuemax="100"
          aria-label="${esc(ms.title)}: ${st.done} of ${st.total} done">
       <i class="seg done" style="width:${st.total ? st.done / st.total * 100 : 0}%" title="Done: ${st.done}"></i>
@@ -563,6 +567,7 @@ function msCardHTML(ms) {
         }).join('')}
       </div>`
       : `<div class="ms-clear">${st.total ? 'Everything in this milestone is done.' : 'No tasks assigned yet — pick some from Unassigned below.'}</div>`}
+    </div>
   </section>`;
 }
 
@@ -610,6 +615,25 @@ function tickClocks() {
   if (!any && S.clockTimer) { clearInterval(S.clockTimer); S.clockTimer = null; }
 }
 
+/* The chase: one glanceable strip of everything open — aim, fraction, due.
+   Clicking a row unfolds its card (if folded) and scrolls to it. */
+function chaseHTML(open) {
+  if (!open.length) return '';
+  return `<section class="panel chase">
+    <div class="micro" style="margin-bottom:9px">What you're chasing — ${open.length} open milestone${open.length === 1 ? '' : 's'}</div>
+    <div class="chase-list">${open.map(m => {
+      const st = msStats(m), due = msDue(m), aim = msAim(m);
+      return `<button class="chase-row" data-act="ms-goto" data-ms="${m.number}" title="${attr(aim ? aim.proves : m.title)}">
+        <span class="chase-t">${esc(m.title)}</span>
+        <span class="chase-aim">${esc(aim ? aim.proves : '—')}</span>
+        <span class="chase-bar"><i style="width:${st.pct}%"></i></span>
+        <span class="mono">${st.done}/${st.total}</span>
+        <span class="ms-due t-${due.tone}">${esc(due.text)}</span>
+      </button>`;
+    }).join('')}</div>
+  </section>`;
+}
+
 function renderMilestones() {
   if (!S.token) {
     $('#msWrap').innerHTML = `<div class="empty"><svg><use href="#i-flag"/></svg><h3>Connect GitHub first</h3>
@@ -626,6 +650,8 @@ function renderMilestones() {
         <div class="micro">${open.length} open milestone${open.length === 1 ? '' : 's'}</div>
         <button class="btn btn-primary btn-sm" data-act="ms-new"><svg><use href="#i-plus"/></svg>New milestone</button>
       </div>
+
+      ${chaseHTML(open)}
 
       ${open.length ? open.map(msCardHTML).join('')
         : `<div class="empty"><svg><use href="#i-flag"/></svg><h3>No open milestones</h3>

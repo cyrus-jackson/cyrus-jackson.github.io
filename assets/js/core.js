@@ -119,6 +119,7 @@ const S = {
   msFilter: '',
   sort: store.get('sort', 'manual'),
   lanes: store.get('lanes', false),
+  msFold: store.get('msFold', {}),
   sorts: (() => {
     const per = store.get('sorts', {});
     if (per && Object.keys(per).length) return per;

@@ -607,6 +607,26 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .link-row:hover:not([disabled]) { border-color: var(--accent); }
 .link-row[disabled] { cursor: default; opacity: .65; }
 .link-row .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); }
+
+/* ---------- chase overview + folding milestones ---------- */
+
+.chase-list { display: flex; flex-direction: column; gap: 6px; }
+.chase-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 8px 12px; cursor: pointer; font-size: 12.5px;
+}
+.chase-row:hover { border-color: var(--accent); }
+.chase-t { flex: 0 0 auto; font-weight: 650; min-width: 180px; }
+.chase-aim { flex: 1; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chase-bar { flex: 0 0 90px; height: 6px; border-radius: 4px; background: var(--sunken); overflow: hidden; }
+.chase-bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.chase-row .mono { font-variant-numeric: tabular-nums; color: var(--fg-dim); }
+
+.ms-fold { flex: 0 0 auto; }
+.fold-glyph { display: inline-block; font-size: 13px; color: var(--fg-faint); transition: transform .16s var(--ease); }
+.fold-glyph.is-shut { transform: rotate(-90deg); }
+.ms-fold:hover .fold-glyph { color: var(--accent); }
 .legend-row { display: flex; flex-direction: column; gap: 9px; }
 .legend-item { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
 .legend-item .track { flex: 1; height: 7px; border-radius: 7px; background: var(--surface-2); overflow: hidden; }
