@@ -88,6 +88,24 @@ function wireDropzone(zone, onUrl) {
 }
 
 /* ---------- task modal ---------- */
+function linkSectionHTML(issue) {
+  const needs = needsOf(issue).map(id => ({ id, target: findLinkedIssue(id) }));
+  const blockers = blockedBy(issue);
+  if (!needs.length && !blockers.length) return '';
+  const row = (text, sub, num, state) => `
+    <button class="link-row" ${num ? `data-act="task-open" data-num="${num}"` : 'disabled'}>
+      <span class="mono">${esc(text)}</span><span class="t">${esc(sub)}</span>
+      ${state ? `<span class="tag">${esc(state)}</span>` : ''}
+    </button>`;
+  return `<div style="margin-top:18px"><div class="micro" style="margin-bottom:8px">Linked issues</div>
+    <div class="link-list">
+      ${needs.map(({ id, target }) => target
+        ? row(`#${target.number}`, target.title, target.number, target.state === 'open' ? 'blocking' : 'done')
+        : row(id, 'Not on the board — no issue matches this id', null, null)).join('')}
+      ${blockers.map(b => row(`#${b.number}`, `${b.title}`, b.number, 'needs this')).join('')}
+    </div></div>`;
+}
+
 function durLineHTML(issue) {
   const span = spanOf(issue), est = estOf(issue);
   let bit;
@@ -177,6 +195,8 @@ async function openTask(num) {
 
       ${linked.length ? `<div style="margin-top:18px"><div class="micro" style="margin-bottom:8px">Linked pull requests</div>
         <div class="pr-list">${linked.map(p => prRowHTML(p, true)).join('')}</div></div>` : ''}
+
+      ${linkSectionHTML(issue)}
 
       <div style="margin-top:20px">
         <div class="micro" style="margin-bottom:8px">Comments <span id="cCount"></span></div>
@@ -510,6 +530,16 @@ function renderProgress() {
     weeks.push({ from, n: closed.filter(i => { const d = new Date(i.closed_at); return d >= from && d < to; }).length });
   }
   const max = Math.max(1, ...weeks.map(w => w.n));
+  // Velocity: estimated days closed per week. Unestimated closes are invisible
+  // here by construction — the caption counts them so the gap is explicit.
+  const vel = weeks.map(w => {
+    const inWeek = closed.filter(i => { const d = new Date(i.closed_at); return d >= w.from && d < new Date(w.from.getTime() + 7 * 864e5); });
+    return { ...w, est: inWeek.reduce((a, i) => a + (estOf(i) || 0), 0),
+             unest: inWeek.filter(i => !estOf(i)).length };
+  });
+  const velMax = Math.max(1, ...vel.map(w => w.est));
+  const velAvg = vel.reduce((a, w) => a + w.est, 0) / Math.max(1, vel.length);
+  const velUnest = vel.reduce((a, w) => a + w.unest, 0);
   const byCol = S.columns.map(c => ({ c, n: tasks.filter(i => colOf(i) === c.id).length }));
   const totalCol = Math.max(1, byCol.reduce((a, b) => a + b.n, 0));
   const openN = tasks.filter(i => i.state === 'open').length;
@@ -562,6 +592,16 @@ function renderProgress() {
             <div class="bar" style="height:${Math.max(3, w.n / max * 100)}%">${w.n ? `<span>${w.n}</span>` : ''}</div>
             <div class="bar-lab">${w.from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>
           </div>`).join('')}</div>
+      </div>
+
+      <div class="panel">
+        <h3>Velocity <span class="ms-due t-none" style="font-weight:400">${velAvg ? velAvg.toFixed(1) + 'd/week avg' : 'no estimates yet'}</span></h3>
+        <div class="bars">${vel.map(w => `
+          <div class="bar-col" title="${w.from.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} — ${w.est ? w.est.toFixed(1).replace(/\.0$/, '') + 'd estimated' : 'nothing estimated'}${w.unest ? ` · ${w.unest} close${w.unest === 1 ? '' : 's'} without estimate` : ''}">
+            <div class="bar vel" style="height:${Math.max(3, w.est / velMax * 100)}%">${w.est ? `<span>${w.est.toFixed(1).replace(/\.0$/, '')}</span>` : ''}</div>
+            <div class="bar-lab">${w.from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>
+          </div>`).join('')}</div>
+        ${velUnest ? `<div style="font-size:12px;color:var(--fg-faint);margin-top:10px">${velUnest} closed task${velUnest === 1 ? '' : 's'} in this window carry${velUnest === 1 ? 's' : ''} no estimate and don't move these bars — set one in the Estimate field.</div>` : ''}
       </div>
 
       <div class="panel">
@@ -975,6 +1015,8 @@ function wire() {
     else if (act === 'new') openNewTask(el.dataset.col);
     else if (act === 'filter') { const l = el.dataset.label; S.filters = S.filters.includes(l) ? S.filters.filter(x => x !== l) : [...S.filters, l]; render(); }
     else if (act === 'filter-clear') { S.filters = []; render(); }
+    else if (act === 'lanes') { S.lanes = !S.lanes; store.set('lanes', S.lanes); render(); }
+    else if (act === 'task-open') openTask(+el.dataset.num);
     else if (act === 'insp-new') openInspEdit(null);
     else if (act === 'insp-edit') openInspEdit(el.dataset.id);
     else if (act === 'insp-del') { S.inspiration = S.inspiration.filter(x => x.id !== el.dataset.id); renderInspiration(); saveInspiration(); }

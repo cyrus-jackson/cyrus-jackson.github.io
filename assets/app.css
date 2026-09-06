@@ -566,6 +566,38 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .bar { width: 100%; max-width: 44px; background: linear-gradient(180deg, var(--accent), var(--accent-2)); border-radius: 5px 5px 2px 2px; min-height: 3px; transition: height .4s var(--ease); position: relative; }
 .bar span { position: absolute; top: -19px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 650; color: var(--fg-dim); }
 .bar-lab { font-size: 10.5px; color: var(--fg-faint); white-space: nowrap; }
+.bar.vel { background: linear-gradient(180deg, var(--merged), var(--accent-2)); }
+
+/* ---------- swimlanes + linked issues ---------- */
+
+.lane { display: flex; flex-direction: column; gap: 9px; }
+.lane + .lane { margin-top: 4px; padding-top: 10px; border-top: 1px dashed var(--line-2); }
+.lane-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10.5px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--fg-faint);
+}
+.lane-head svg { width: 11px; height: 11px; }
+.lane-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane-head b { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+.blocked {
+  font-size: 10px; font-weight: 650; letter-spacing: .02em;
+  padding: 1px 7px; border-radius: 20px; cursor: pointer;
+  color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent);
+  background: color-mix(in srgb, var(--bad) 11%, transparent);
+}
+.blocked:hover { filter: brightness(1.15); }
+
+.link-list { display: flex; flex-direction: column; gap: 6px; }
+.link-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 7px 10px; cursor: pointer; font-size: 12.5px;
+}
+.link-row:hover:not([disabled]) { border-color: var(--accent); }
+.link-row[disabled] { cursor: default; opacity: .65; }
+.link-row .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); }
 .legend-row { display: flex; flex-direction: column; gap: 9px; }
 .legend-item { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
 .legend-item .track { flex: 1; height: 7px; border-radius: 7px; background: var(--surface-2); overflow: hidden; }

@@ -118,6 +118,7 @@ const S = {
   filters : [],
   msFilter: '',
   sort: store.get('sort', 'manual'),
+  lanes: store.get('lanes', false),
   sorts: (() => {
     const per = store.get('sorts', {});
     if (per && Object.keys(per).length) return per;
@@ -1011,4 +1012,52 @@ function boopDroid() {
   lastPatToast = now;
   const beeps = ["Beep-boop!", "Bwoop-bee-doop!", "Beee-doo!"];
   toast(beeps[S.pet.treats % beeps.length] + " · " + petTitle() + " · " + S.pet.treats + " charges");
+}
+
+/* ---------- linked issues ----------
+   Plan IDs (M1-01) survive in two places: the seed footer ("needs M1-01")
+   and the importer header ("Needs: M1-01"). needsOf collects them;
+   findLinkedIssue resolves each to a live issue by title prefix (or
+   #number); blockedBy resolves the reverse direction. Unresolvable ids
+   stay as plain text, never dropped. */
+function needsOf(issue) {
+  const ids = [];
+  const re = /needs?\s*:?\s*([A-Za-z0-9_#-]+(?:\s*,\s*[A-Za-z0-9_#-]+)*)/gi;
+  let m;
+  const body = String(issue.body || "");
+  while ((m = re.exec(body))) {
+    for (const tok of m[1].split(",")) {
+      const id = tok.trim();
+      // Plan IDs and issue refs always carry a digit — this keeps prose
+      // like "the system needs rest" from becoming a phantom link.
+      if (!id || !/\d/.test(id) || /^nothing$/i.test(id)) continue;
+      if (!ids.some(x => x.toLowerCase() === id.toLowerCase())) ids.push(id);
+    }
+  }
+  return ids;
+}
+function findLinkedIssue(id) {
+  const num = /^#(\d+)$/.exec(id);
+  if (num) return S.issues.find(i => i.number === +num[1]) || null;
+  const low = id.toLowerCase();
+  return S.issues.find(i => String(i.title || "").toLowerCase().startsWith(low)) || null;
+}
+// Reverse links need the whole board, so they are resolved separately and
+// cached per render pass — call resetLinkCache() before a full paint.
+let linkCache = null;
+function resetLinkCache() { linkCache = null; }
+function blockedBy(issue) {
+  if (!linkCache) {
+    linkCache = new Map();
+    for (const i of S.issues) {
+      for (const id of needsOf(i)) {
+        const target = findLinkedIssue(id);
+        if (target && target.number !== i.number) {
+          if (!linkCache.has(target.number)) linkCache.set(target.number, []);
+          if (!linkCache.get(target.number).some(x => x.number === i.number)) linkCache.get(target.number).push(i);
+        }
+      }
+    }
+  }
+  return linkCache.get(issue.number) || [];
 }

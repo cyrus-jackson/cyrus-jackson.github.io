@@ -194,8 +194,10 @@ function renderFilters() {
       <option value="none" ${S.msFilter === 'none' ? 'selected' : ''}>No milestone</option>
     </select>` : '';
 
+  const lanesToggle = S.view === 'board'
+    ? `<button class="chip ${S.lanes ? 'is-on' : ''}" data-act="lanes" title="Group each column by milestone">Swimlanes</button>` : '';
   const show = S.view === 'board' && (used.size || openMs.length);
-  $('#filters').innerHTML = !show ? '' : msPicker +
+  $('#filters').innerHTML = !show && !lanesToggle ? '' : lanesToggle + msPicker +
     [...used].slice(0, 14).map(([n, c]) =>
       `<button class="chip ${S.filters.includes(n) ? 'is-on' : ''}" data-act="filter" data-label="${attr(n)}">
          <i class="sw" style="background:#${esc(c)}"></i>${esc(n)}</button>`).join('')
@@ -237,6 +239,13 @@ function cardHTML(i, links) {
          <svg><use href="#i-pr"/></svg>#${p.number}</a>`).join('')}</div>` : ''}
     <div class="card-foot">
       ${(() => {
+        const blockers = needsOf(i).map(findLinkedIssue)
+          .filter(x => x && x.number !== i.number && x.state === 'open');
+        if (!blockers.length) return '';
+        const names = blockers.map(x => `#${x.number}`).join(', ');
+        return `<button class="blocked" data-act="task-open" data-num="${blockers[0].number}" title="Waiting on ${names} — click to open">⛔ blocked</button>`;
+      })()}
+      ${(() => {
         const d = idleDays(i);
         const mid = ['progress', 'review'].includes(colOf(i));
         const limit = +S.staleDays > 0 ? +S.staleDays : DEFAULT_STALE_DAYS;
@@ -262,7 +271,30 @@ function cardHTML(i, links) {
   </article>`;
 }
 
+/* Lanes follow the milestone list order, unassigned last. Only lanes with
+   cards in this column render — empty milestones don't stretch the column. */
+function laneHTML(items, links) {
+  if (!S.lanes) return items.map(i => cardHTML(i, links)).join('');
+  const buckets = new Map();
+  for (const i of items) {
+    const k = i.milestone ? `m${i.milestone.number}` : 'none';
+    if (!buckets.has(k)) buckets.set(k, { ms: i.milestone || null, items: [] });
+    buckets.get(k).items.push(i);
+  }
+  const order = [...S.milestones.map(m => `m${m.number}`), 'none'];
+  return [...buckets.entries()]
+    .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+    .map(([k, b]) => `
+      <div class="lane">
+        <div class="lane-head" title="${attr(b.ms ? b.ms.title : 'No milestone')}">
+          <svg><use href="#i-flag"/></svg><span>${esc(b.ms ? b.ms.title : 'No milestone')}</span><b>${b.items.length}</b>
+        </div>
+        ${b.items.map(i => cardHTML(i, links)).join('')}
+      </div>`).join('');
+}
+
 function renderBoard() {
+  resetLinkCache();
   const links = prLinks();
   const groups = {}; S.columns.forEach(c => groups[c.id] = []);
   for (const i of visibleIssues()) (groups[colOf(i)] = groups[colOf(i)] || []).push(i);
@@ -293,7 +325,7 @@ function renderBoard() {
           ${Object.entries(SORTS).map(([v, t]) => `<option value="${v}" ${sortId(c.id) === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}
         </select>
       </div>
-      <div class="col-body" data-list="${c.id}">${groups[c.id].map(i => cardHTML(i, links)).join('')}</div>
+      <div class="col-body" data-list="${c.id}">${laneHTML(groups[c.id], links)}</div>
       <button class="col-add" data-act="new" data-col="${c.id}"><svg><use href="#i-plus"/></svg>Add task</button>
     </section>`).join('');
 
