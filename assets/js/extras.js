@@ -438,22 +438,36 @@ function openPromote(num) {
 
 /* ---------- milestones ---------- */
 // What each milestone is for, transcribed from ARCHITECTURE.md §17 (build
-// order). Matched by the M-number in the milestone title, so anything that
-// isn't one of these simply shows no aim line instead of a wrong one.
+// order) with scope from DESIGN.md §§1–3, PALETTE.md and CHARACTERS.md.
+// `does` is the one-paragraph roadmap summary shown on the top cards;
+// `proves` is the exit-gate question. Matched by the M-number in the
+// milestone title, so anything that isn't one of these simply shows no
+// aim line instead of a wrong one.
 const MILESTONE_AIMS = {
-  0:  { scope: 'asmdefs, tick loop, grid, chunked mesh renderer, camera, dig one tile', proves: 'The skeleton holds; rendering scales.' },
-  1:  { scope: 'Flooding/water slice + thermal solver, overlay shaders, benchmark harness', proves: 'The hard part works, reads clearly and hits budget.' },
-  2:  { scope: 'One member: nav grid, A*, task board, executes a dig order', proves: "The genre's core loop." },
-  3:  { scope: 'Power + water networks, a city tap, a server that draws power and makes heat', proves: 'Systems compose.' },
-  4:  { scope: 'Sensors + exposure + one cover identity. Heat you must hide.', proves: 'Whether the game is fun — the whole point.' },
-  5:  { scope: 'Save / load + migration chain', proves: 'Do not go past here without it.' },
-  6:  { scope: 'World generation: districts, strata, trunks, POI chunks', proves: 'The world is worth exploring.' },
-  7:  { scope: 'Room detection, construction verbs, stockpiles, resources', proves: 'The construction game.' },
-  8:  { scope: 'The full ventilation ladder + remaining sensors', proves: 'The strategic spine.' },
-  9:  { scope: 'Multiple members: needs, schedules, time off, skills, priorities, loyalty, light relationships', proves: 'It becomes a colony.' },
-  10: { scope: 'Art pipeline: palette enforcement, atlas packing, skeletal rig', proves: 'The look is reproducible.' },
-  11: { scope: 'Four lighting states, animated objects, city backdrop, weather, audio', proves: 'The atmosphere.' },
-  12: { scope: 'Content: buildings, covers, contacts, operations, escalation', proves: 'Depth.' },
+  1:  { scope: 'Flooding/water slice + thermal solver, overlay shaders, benchmark harness', proves: 'The hard part works, reads clearly and hits budget.',
+        does: 'Edge-flux liquid solver and energy-based thermal sim on the grid, data-texture overlays, and a headless benchmark proving the §13 budget on the breach scenario.' },
+  2:  { scope: 'One member: nav grid, A*, task board, executes a dig order', proves: "The genre's core loop.",
+        does: 'The first member: nav grid with walkability regions, worker-thread A*, a pull-model task board, and a dig order executed end to end.' },
+  3:  { scope: 'Power + water networks, a city tap, a server that draws power and makes heat', proves: 'Systems compose.',
+        does: 'Dirty-network power and water solves, a city tap to steal from, and a server that turns watts into heat — the first system that feeds the detection model.' },
+  4:  { scope: 'Sensors + exposure + one cover identity. Heat you must hide.', proves: 'Whether the game is fun — the whole point.',
+        does: 'Thermal and exposure sensors sampling the sim, suspicion measured never awarded, and one cover identity setting the thermal budget. Heat becomes a tell.' },
+  5:  { scope: 'Save / load + migration chain', proves: 'Do not go past here without it.',
+        does: 'Full save/load with a versioned migration chain, before the world gets rich enough that serialization becomes a rewrite.' },
+  6:  { scope: 'World generation: districts, strata, trunks, POI chunks', proves: 'The world is worth exploring.',
+        does: 'City-above-first generation, depth strata, trunk-network graphs and procedurally placed authored chunks, all seeded (DESIGN.md §1).' },
+  7:  { scope: 'Room detection, construction verbs, stockpiles, resources', proves: 'The construction game.',
+        does: 'Emergent enclosure detection, build/dig orders as construction verbs, and stockpiles with resources flowing into jobs.' },
+  8:  { scope: 'The full ventilation ladder + remaining sensors', proves: 'The strategic spine.',
+        does: 'Every ventilation rung from bedrock sink to geothermal loop, each with capacity and detection cost, plus the rest of the sensor suite (DESIGN.md §§2–3).' },
+  9:  { scope: 'Multiple members: needs, schedules, time off, skills, priorities, loyalty, light relationships', proves: 'It becomes a colony.',
+        does: 'Needs, daily schedules, time-off requests, skills and priorities, loyalty, and light relationships — members become people.' },
+  10: { scope: 'Art pipeline: palette enforcement, atlas packing, skeletal rig', proves: 'The look is reproducible.',
+        does: 'Quantized palette enforcement, packed atlases, and the skeletal character rig built from the sheets — atompunk, repeatable (PALETTE.md, CHARACTERS.md).' },
+  11: { scope: 'Four lighting states, animated objects, city backdrop, weather, audio', proves: 'The atmosphere.',
+        does: 'Day/alert lighting states, machine animation, the surface-city backdrop, mechanical weather and the first audio pass.' },
+  12: { scope: 'Content: buildings, covers, contacts, operations, escalation', proves: 'Depth.',
+        does: 'The content layer: building roster, cover identities, city contacts, operations to run, and the escalation ladder that ends runs.' },
 };
 function msAim(ms) {
   const m = /\bM(\d{1,2})\b/i.exec(String((ms && ms.title) || ''));
@@ -615,26 +629,48 @@ function tickClocks() {
   if (!any && S.clockTimer) { clearInterval(S.clockTimer); S.clockTimer = null; }
 }
 
-/* The chase: one summary card per milestone — aim, fraction, due. Clicking
-   a card toggles its full detail below (folded cards hide entirely); the
-   strip stays put so the whole roadmap fits on one screen. */
+/* The chase: one summary card per roadmap milestone M1–M12, in doc order,
+   each anchored to its live GitHub milestone when one exists (click toggles
+   the detail below). Roadmap entries with no milestone yet render dimmed and
+   static; live milestones off the roadmap keep their own card at the end. */
+function findLiveMilestone(n) {
+  const re = new RegExp(`\\bM${n}\\b`, 'i');
+  return S.milestones.find(m => re.test(String(m.title || ''))) || null;
+}
 function chaseHTML(open, closed) {
-  const all = [...open, ...closed];
-  if (!all.length) return '';
+  const seen = new Set();
+  const cards = [];
+  for (let n = 1; n <= 12; n++) {
+    const aim = MILESTONE_AIMS[n];
+    const live = findLiveMilestone(n);
+    if (live) seen.add(live.number);
+    cards.push({ n, aim, live });
+  }
+  for (const m of [...open, ...closed]) {
+    if (!seen.has(m.number)) cards.push({ n: null, aim: msAim(m), live: m });
+  }
+  if (!cards.length) return '';
   return `<section class="panel chase">
     <div class="row" style="justify-content:space-between;margin-bottom:9px">
-      <div class="micro">What you're chasing — ${open.length} open milestone${open.length === 1 ? '' : 's'}</div>
+      <div class="micro">What you're chasing — the roadmap, M1 to M12</div>
       <div class="row" style="gap:6px">
         <button class="btn btn-ghost btn-sm" data-act="ms-fold-all" data-mode="open">Expand all</button>
         <button class="btn btn-ghost btn-sm" data-act="ms-fold-all" data-mode="shut">Collapse all</button>
       </div>
     </div>
-    <div class="chase-grid">${all.map(m => {
-      const st = msStats(m), due = msDue(m), aim = msAim(m);
-      const shut = (S.msFold || {})[m.number];
-      return `<button class="chase-card${m.state === 'closed' ? ' is-done' : ''}${shut ? ' is-off' : ''}" data-act="ms-goto" data-ms="${m.number}" title="${attr(aim ? aim.proves : m.title)} — click to ${shut ? 'show' : 'hide'}">
-        <span class="chase-t">${esc(m.title)}</span>
-        <span class="chase-aim">${esc(aim ? aim.proves : '—')}</span>
+    <div class="chase-grid">${cards.map(({ n, aim, live }) => {
+      if (!live) {
+        return `<div class="chase-card is-missing" title="No GitHub milestone yet — aims to prove: ${attr(aim.proves)}">
+          <span class="chase-t">M${n}</span>
+          <span class="chase-aim">${esc(aim.does)}</span>
+          <span class="tag">not on GitHub yet</span>
+        </div>`;
+      }
+      const st = msStats(live), due = msDue(live);
+      const shut = (S.msFold || {})[live.number];
+      return `<button class="chase-card${live.state === 'closed' ? ' is-done' : ''}${shut ? ' is-off' : ''}" data-act="ms-goto" data-ms="${live.number}" title="${attr(aim ? `${aim.proves} — click to ${shut ? 'show' : 'hide'}` : `${live.title} — click to ${shut ? 'show' : 'hide'}`)}">
+        <span class="chase-t">${esc(live.title)}</span>
+        ${aim ? `<span class="chase-aim">${esc(aim.does)}</span>` : ''}
         <span class="chase-bar"><i style="width:${st.pct}%"></i></span>
         <span class="mono">${st.done}/${st.total}</span>
         <span class="ms-due t-${due.tone}">${esc(due.text)}</span>
