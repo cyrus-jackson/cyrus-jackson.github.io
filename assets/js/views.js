@@ -1004,32 +1004,54 @@ function wire() {
     else if (act === 'ms-edit') openMilestoneEdit(+el.dataset.ms);
     else if (act === 'ms-open') openTask(+el.dataset.num);
     else if (act === 'ms-fold') {
+      // Hide the entire card. The summary card above stays and toggles it back.
       const n = +el.dataset.ms;
-      S.msFold = { ...(S.msFold || {}) };
-      if (S.msFold[n]) delete S.msFold[n]; else S.msFold[n] = true;
+      S.msFold = { ...(S.msFold || {}), [n]: true };
       store.set('msFold', S.msFold);
-      // Direct DOM flip — no re-render, so assign dropdowns keep their state.
       const card = $(`#ms-${n}`);
-      const bodyEl = card && $('.ms-body', card);
-      if (bodyEl) {
-        bodyEl.hidden = !bodyEl.hidden;
-        const glyph = $('.fold-glyph', el);
-        if (glyph) glyph.classList.toggle('is-shut', bodyEl.hidden);
-        el.title = bodyEl.hidden ? 'Expand' : 'Collapse';
-      } else {
-        renderMilestones();
+      if (card) card.style.display = 'none';
+      const sum = document.querySelector(`.chase-card[data-ms="${n}"]`);
+      if (sum) {
+        sum.classList.add('is-off');
+        sum.title = sum.title.replace('click to hide', 'click to show');
       }
     }
-    else if (act === 'ms-goto') {
-      const n = +el.dataset.ms;
-      if ((S.msFold || {})[n]) {
-        S.msFold = { ...(S.msFold || {}) };
-        delete S.msFold[n];
-        store.set('msFold', S.msFold);
-        renderMilestones();
+    else if (act === 'ms-fold-all') {
+      const shut = el.dataset.mode === 'shut';
+      S.msFold = {};
+      for (const m of S.milestones) {
+        if (shut) S.msFold[m.number] = true;
+        const card = $(`#ms-${m.number}`);
+        if (card) card.style.display = shut ? 'none' : '';
       }
+      store.set('msFold', S.msFold);
+      $$('.chase-card').forEach(c => {
+        c.classList.toggle('is-off', shut);
+        c.title = c.title.replace(shut ? 'click to hide' : 'click to show', shut ? 'click to show' : 'click to hide');
+      });
+    }
+    else if (act === 'ms-goto') {
+      // Summary cards toggle their detail: hidden → show + scroll, shown → hide.
+      const n = +el.dataset.ms;
       const card = $(`#ms-${n}`);
-      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const shutDetails = card && card.closest('details');
+      const isHidden = !card || card.style.display === 'none' ||
+        ((S.msFold || {})[n] && !card.style.display) ||
+        !!(shutDetails && !shutDetails.open);
+      S.msFold = { ...(S.msFold || {}) };
+      if (isHidden) {
+        delete S.msFold[n];
+        if (shutDetails) shutDetails.open = true;
+      } else {
+        S.msFold[n] = true;
+      }
+      store.set('msFold', S.msFold);
+      if (card) {
+        card.style.display = isHidden ? '' : 'none';
+        if (isHidden && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      el.classList.toggle('is-off', !isHidden);
+      el.title = el.title.replace(isHidden ? 'click to show' : 'click to hide', isHidden ? 'click to hide' : 'click to show');
     }
     else if (act === 'idea-new') openIdeaNew();
     else if (act === 'idea-open') openTask(+el.dataset.num);

@@ -610,18 +610,21 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 
 /* ---------- chase overview + folding milestones ---------- */
 
-.chase-list { display: flex; flex-direction: column; gap: 6px; }
-.chase-row {
-  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+.chase-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.chase-card {
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px; text-align: left;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
-  padding: 8px 12px; cursor: pointer; font-size: 12.5px;
+  padding: 10px 12px; cursor: pointer; font-size: 12.5px;
 }
-.chase-row:hover { border-color: var(--accent); }
-.chase-t { flex: 0 0 auto; font-weight: 650; min-width: 180px; }
-.chase-aim { flex: 1; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chase-bar { flex: 0 0 90px; height: 6px; border-radius: 4px; background: var(--sunken); overflow: hidden; }
-.chase-bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
-.chase-row .mono { font-variant-numeric: tabular-nums; color: var(--fg-dim); }
+.chase-card:hover { border-color: var(--accent); }
+.chase-card.is-off { opacity: .55; }
+.chase-card.is-done { border-style: dashed; }
+.chase-card .chase-t { font-weight: 650; }
+.chase-card .chase-aim { color: var(--fg-dim); font-size: 12px; line-height: 1.45; }
+.chase-card .chase-bar { height: 6px; border-radius: 4px; background: var(--sunken); overflow: hidden; }
+.chase-card .chase-bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+.chase-card .mono { font-variant-numeric: tabular-nums; color: var(--fg-dim); font-size: 11.5px; }
+.chase-card .ms-due { align-self: flex-start; }
 
 .ms-fold { flex: 0 0 auto; }
 .fold-glyph { display: inline-block; font-size: 13px; color: var(--fg-faint); transition: transform .16s var(--ease); }
