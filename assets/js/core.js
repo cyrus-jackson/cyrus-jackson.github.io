@@ -17,6 +17,7 @@ const THEMES = [
   { id:'terminal', name:'Terminal',  sw:['#05090c','#4ef08d'] },
   { id:'paper',    name:'Paper',     sw:['#f7f5f0','#1f6f7a'] },
   { id:'mist',     name:'Mist',      sw:['#eef2f8','#2563eb'] },
+  { id:'outrun',   name:'Outrun',    sw:['#150826','#ff5df2'] },
 ];
 
 const IDEA_LABEL = 'idea';
@@ -508,7 +509,7 @@ function paintCounts() {
    merged over defaults so new toggles light up for existing browsers too.
    Motion (confetti, ambient dust) additionally yields to
    prefers-reduced-motion; static dressing (covers, clocks, streaks) does not. */
-const DEFAULT_FX = { confetti: true, boom: 'full', boomStyle: 'ticker', covers: true, ambient: true, dust: 'subtle', clocks: true, streaks: true, pet: true };
+const DEFAULT_FX = { confetti: true, boom: 'full', boomStyle: 'ticker', covers: true, ambient: true, dust: 'subtle', clocks: true, streaks: true, pet: true, wander: true };
 S.fx = { ...DEFAULT_FX, ...store.get('fx', {}) };
 
 const fxOn = name => !!(S.fx && S.fx[name]);
@@ -652,7 +653,7 @@ function boomTick() {
    change, removed entirely when off. Most themes get tinted drifting dust;
    atompunk gets the full treatment — brass orbit rings with travelling
    electrons and four-point starbursts, the atomic-age furniture. */
-const DUST_TINTS = { neon: '#60dcec', atompunk: '#d9ae3f', midnight: '#8b7cf6', terminal: '#4ef08d', paper: '#1f6f7a', mist: '#2563eb' };
+const DUST_TINTS = { neon: '#60dcec', atompunk: '#d9ae3f', midnight: '#8b7cf6', terminal: '#4ef08d', paper: '#1f6f7a', mist: '#2563eb', outrun: '#ff5df2' };
 const ATOM_TINTS = ['#d9ae3f', '#f2e8d5', '#b0762a', '#8a8f98'];
 let dustCanvas = null, dustParts = [], dustRaf = 0;
 function stopAmbient() {
@@ -868,4 +869,69 @@ function paintPet(bounce = false) {
   const nm = document.getElementById("petName");
   if (nm) nm.textContent = S.pet.name;
   el.title = S.pet.name + " · " + petTitle() + " · " + mood + " · " + S.pet.treats + " treats (click to pat)";
+}
+
+/* ---------- pet flights ----------
+   Every 25–50s the kea stretches its wings: a twin lifts off the sidebar
+   perch, wanders the viewport, and lands back home. Gated by the wander
+   toggle, sleep, hidden tabs and reduced motion; silent by design. */
+let petFlying = false;
+function petFlightPath(w, h, n = 4) {
+  const pts = [];
+  for (let i = 0; i < n; i++) pts.push({ x: w * (0.08 + Math.random() * 0.8), y: h * (0.12 + Math.random() * 0.66) });
+  return pts;
+}
+function shouldFlyPet() {
+  return fxOn("pet") && (S.fx && S.fx.wander !== false) && motionOk() && !petSleeping() &&
+    typeof document !== "undefined" && !document.hidden && !petFlying;
+}
+function schedulePetFlight() {
+  if (typeof window === "undefined" || !window.setTimeout) return;
+  window.setTimeout(() => {
+    if (shouldFlyPet()) flyPet();
+    schedulePetFlight();
+  }, 25000 + Math.random() * 25000);
+}
+function flyPet() {
+  const perch = document.getElementById("pet");
+  const svg = perch && perch.querySelector ? perch.querySelector("svg") : null;
+  if (!perch || !svg || !perch.getBoundingClientRect) return;
+  petFlying = true;
+  perch.style.visibility = "hidden";
+  const box = perch.getBoundingClientRect();
+  const twin = document.createElement("div");
+  twin.id = "petFly";
+  twin.className = "is-flying";
+  twin.setAttribute("aria-hidden", "true");
+  twin.appendChild(svg.cloneNode(true));
+  document.body.appendChild(twin);
+  const home = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  const pts = [...petFlightPath(window.innerWidth, window.innerHeight), home];
+  let x = home.x, y = home.y, leg = 0, last = null;
+  const SPEED = 240;
+  const step = (t) => {
+    if (!document.getElementById("petFly")) { petFlying = false; return; }
+    if (last === null) last = t || 0;
+    const dt = Math.min(0.05, (((t || 0) - last) / 1000) || 0.016);
+    last = t || 0;
+    const target = pts[leg];
+    const dx = target.x - x, dy = target.y - y, dist = Math.hypot(dx, dy) || 1;
+    if (dist < 14) {
+      leg++;
+      if (leg >= pts.length) { landPet(twin, perch); return; }
+    } else {
+      x += dx / dist * SPEED * dt; y += dy / dist * SPEED * dt;
+    }
+    twin.style.transform = "translate(" + (x - 28) + "px," + (y - 28) + "px)";
+    const inner = twin.firstChild;
+    if (inner && inner.style) inner.style.transform = "rotate(" + Math.max(-18, Math.min(18, dx / dist * 22)) + "deg)";
+    raf(step);
+  };
+  raf(step);
+}
+function landPet(twin, perch) {
+  twin.style.opacity = "0";
+  setTimeout(() => { if (twin.parentNode) twin.parentNode.removeChild(twin); }, 450);
+  perch.style.visibility = "";
+  petFlying = false;
 }

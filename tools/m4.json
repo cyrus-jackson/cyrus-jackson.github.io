@@ -1,0 +1,155 @@
+{
+  "milestone": {
+    "title": "M4 — Sensors, exposure and one cover identity",
+    "description": "Heat you must hide; whether the game is fun. Exit gate: a server earns credits, its heat climbs to the surface, the thermal sensor's rolling average crosses the accounting office's band, a notice arrives, the player throttles, digs deeper or buys a cover, exposure decays, and ignoring it climbs a ladder to a raid; every number measured from the physics, deterministic, in CI, and a written playtest verdict. 14 tasks, 17 dev-days estimated, ~22 with contingency."
+  },
+  "column": "todo",
+  "tasks": [
+    {
+      "id": "M4-01",
+      "title": "M4-01 Credits: a server earns, a cover costs",
+      "body": "**Why this is needed.** The milestone's own gate says a server making money, and the design leaves how money\nworks as an open question. M4 does not need the answer, it needs a number that makes the\nserver worth keeping on and a cost that makes changing cover a decision. What the server\nactually does for that money is flavour for the content milestone.\n\n**What it achieves.** A credit balance that rises while the server runs and falls when the player buys a\ncover, visible to the UI through events, deterministic and replayable.\n\n- [ ] Ledger in Kea.Core.City: credits as an integer; the server earns per second of derived Running, scaled by its duty\n- [ ] Cover upgrade and nothing else spends at M4; taps and wires are free until the resource milestone\n- [ ] Ledger changes raise events for the UI (M4-08); nothing in the view computes money\n- [ ] Recorded as the interim answer to the money question in the design document, with what it leaves open\n\nDone when: A run's credit balance is a pure function of how long the server ran, and a replay reproduces it.",
+      "days": 1,
+      "track": "A",
+      "needs": [
+        "M3-08"
+      ]
+    },
+    {
+      "id": "M4-02",
+      "title": "M4-02 The surface exchanges heat with the city",
+      "body": "**Why this is needed.** Both solvers use closed boundaries, so no joule ever leaves the world. Once the bedrock\nsaturates the whole world warms forever, and there is no surface temperature to read\nagainst the city's ambient because the surface is just more sealed cells. The thermal\nsensor needs a surface that leaks heat to the city at a finite rate, so that a hot\nunderground shows as a warm plot and a cold one shows nothing.\n\n**What it achieves.** A boundary condition, not a rule: the surface band relaxes toward the city's ambient at\na configured rate, the energy that leaves is counted so the conservation figure stays\nhonest, and the rate is the hook weather will turn later. The thermal sensor then has\nsomething physical to read.\n\n- [ ] Surface band cells exchange energy with a fixed city ambient each thermal step at a configured exchange coefficient; the ambient constant lives in WorldConst\n- [ ] Energy vented to the city is accumulated and included in the conservation report as a named term, so grid plus vented is invariant\n- [ ] Tests: a sealed hot world cools to ambient through the surface only; the steady-state surface temperature above ambient scales with the heat flux from below\n- [ ] Bench: the thermal-load scenario reaches a steady state instead of climbing forever\n\nDone when: A server's heat reaches the surface band and settles at a temperature above ambient that depends on its output, and the energy accounting names where the rest went.",
+      "days": 1.5,
+      "track": "A",
+      "needs": [
+        "M3-01",
+        "M3-09"
+      ]
+    },
+    {
+      "id": "M4-03",
+      "title": "M4-03 Sensor sampling at 1 Hz, and the thermal sensor",
+      "body": "**Why this is needed.** Suspicion is measured from the world, never awarded for an action; that rule decides\nwhether the expensive simulation is doing gameplay work or is a visual effect. The\nmechanism is a sampling pass once a simulated second that reads physical quantities the\ngrid already holds into small sensor structs. Thermal is the sensor this milestone is\nabout; the struct and the pass are generic so each later sensor is one sampling function.\n\n**What it achieves.** A ThermalSensor whose value is the surface temperature of the plot above ambient, with\na rolling average so a brief spike is survivable and a sustained excess is not, which is\nthe tactical verb the design wants: burst, then run cold while the average decays.\n\n- [ ] Sensor struct: sampled value, rolling average over a configured window, band supplied from outside; a sensor table indexed by sensor kind\n- [ ] SensorSystem bound to the sensor slot at its divisor and phase; reads the surface band over the plot\n- [ ] Thermal sampling reads temperatures derived from energy, mass and element, never a stored temperature\n- [ ] Tests: a cold plot samples zero; a hot plot's average lags the instantaneous value by the window; the sampler allocates nothing\n\nDone when: The thermal sensor's average climbs while the server runs and decays after it stops, on the schedule the window says.",
+      "days": 1.5,
+      "track": "B",
+      "needs": [
+        "M4-02"
+      ]
+    },
+    {
+      "id": "M4-04",
+      "title": "M4-04 Power and water sensors read the meters M3 already keeps",
+      "body": "**Why this is needed.** The design's best moment is that one server lights up several sensors at once and nobody\nwrote a rule for it. M3's city side already reports draw against metered load for power\nand water, so two more sensors cost one sampling function each. Their mitigations and full\nbands belong to the ventilation and remaining-sensors milestone, but seeing them move now\ntells the playtest whether the tension is real.\n\n**What it achieves.** Power and water sensors that sample the difference between actual and metered draw,\ndisplayed beside thermal, with bands from the cover so the accounting office looks absurd\nrunning a server.\n\n- [ ] PowerSensor samples actual minus metered draw across all power taps; WaterSensor the same for water taps\n- [ ] Both bands come from the cover identity like thermal\n- [ ] Tests: a fully spoofed tap reads zero; spoof fraction below one reads the difference\n\nDone when: Turning the server on moves three sensors, and turning it off lets all three decay.",
+      "days": 1,
+      "track": "B",
+      "needs": [
+        "M4-03",
+        "M3-14"
+      ]
+    },
+    {
+      "id": "M4-05",
+      "title": "M4-05 Exposure: measured every city tick, written by nothing else",
+      "body": "**Why this is needed.** Exposure is the aggregate of how far each sensor's average sits above its legitimate\nband, weighted by the sensor and by how closely this district is watched. It is computed\non the slow city tick from the sensors, and nothing else in the codebase may write to it.\nThat is what makes a player's novel way of moving heat produce a novel result without a\nrule for it.\n\n**What it achieves.** One exposure value the whole metagame reads, derived only from sampled physics, with a\ntest that proves building and placing anything never changes it unless the physics did.\n\n- [ ] ExposureModel in Kea.Core.City on the city slot: sum over sensors of max(0, average minus band top) over band top, times sensor weight, times district scrutiny\n- [ ] District scrutiny and type fit for the starter plot as data from the fixture, not literals\n- [ ] Exposure is a private field with one writer; the value is published through the snapshot and events\n- [ ] Tests: place every building with the server off and exposure stays zero; run hot and it rises; cut power and it decays with the rolling window\n\nDone when: Exposure over a scripted run is a pure function of the recorded commands and the physics, and the no-award test passes.",
+      "days": 1.5,
+      "track": "B",
+      "needs": [
+        "M4-03"
+      ]
+    },
+    {
+      "id": "M4-06",
+      "title": "M4-06 Cover identity as data: the accounting office, and one upgrade",
+      "body": "**Why this is needed.** The cover sets every sensor's legitimate band; it is the mechanic that turns growth into\na question of identity. The gate asks for one cover, but with only one there is no\ndecision to make when the meter climbs. So the starting cover is authored fully and a\nsecond, more expensive cover with a wider heat band exists as the same data type, which is\nenough for the loop to have a choice in it.\n\n**What it achieves.** A CoverDef table with per-sensor bands and a cost, the accounting office as the run's\nstart, a laundry or print shop as the upgrade, and an upgrade command that spends credits\nand widens the bands from the next sampling tick.\n\n- [ ] CoverDef: id, name, band per sensor, cost, district fit; built-in table in code with the same asset and baker pattern as elements and buildings\n- [ ] City state stores the current cover by index; sensors read their bands from it\n- [ ] UpgradeCover command with a credit cost through the ledger; refused when unaffordable, with an event saying so\n- [ ] Tests: upgrading widens the thermal band on the next sample; the same heat reads lower exposure under the laundry\n\nDone when: Under the accounting office the server is an anomaly and under the laundry the same server is not, and the difference is only the band.",
+      "days": 1,
+      "track": "B",
+      "needs": [
+        "M4-05",
+        "M4-01"
+      ]
+    },
+    {
+      "id": "M4-07",
+      "title": "M4-07 Escalation ladder with decay, and the site inspection",
+      "body": "**Why this is needed.** Exposure must not be a health bar that empties into a loss. It is a ladder of consequences,\neach telegraphed and survivable, and it decays when the player behaves, or the game becomes a\none-way ratchet. The ladder is nominal, anomaly flagged, routine audit, site inspection,\nsurveillance, raid. Arrests need surface staff and are left to the members milestone;\nthe design document is told so.\n\n**What it achieves.** Rungs driven by exposure thresholds with hysteresis and decay, each rung scheduled at a\nfuture tick the player can see, an audit that tightens bands for a window, an inspection\nthat fails on an unconcealed illicit building in the office footprint, surveillance that\nraises sensor weights, and a raid that ends the run as a placeholder event. The Concealed\nflag gets its first meaning.\n\n- [ ] Rung state, thresholds, hysteresis and decay rate as data; transitions only on the city tick\n- [ ] Each rung schedules its event at a tick; the schedule is in the snapshot so the UI can count down\n- [ ] Audit: bands tightened for a window. Inspection: fails if any illicit building in the office footprint is not Concealed. Surveillance: sensor weights raised for a window. Raid: run-over event\n- [ ] Decay: a clean window steps the rung down\n- [ ] Tests for every transition in both directions, and that a replay reproduces the schedule tick for tick\n\nDone when: A scripted hot run climbs the ladder on a schedule the test predicts, and a scripted throttle-down descends it.",
+      "days": 2,
+      "track": "B",
+      "needs": [
+        "M4-05",
+        "M4-06"
+      ]
+    },
+    {
+      "id": "M4-08",
+      "title": "M4-08 Event queue and the flush slot",
+      "body": "**Why this is needed.** Core cannot call the UI and must not know it exists; the tick order reserves a slot for\nflushing events upward and nothing is bound to it. Every notice, audit date, inspection\nresult and credit change M4 produces needs that path, and the rule that UI is event-driven\nrather than polling has no mechanism without it.\n\n**What it achieves.** A preallocated ring of flat event structs that Core systems write during the tick and\nBootstrap drains after it, with zero allocation and a stable order.\n\n- [ ] Event struct: kind, tick, integer payload; a fixed-capacity ring in Kea.Core with a dropped counter like the command queue\n- [ ] EventFlushSystem bound to the flush slot; Bootstrap drains it into subscribers after the tick\n- [ ] Events for M4: anomaly flagged, audit scheduled, inspection result, rung changed, cover changed, credits changed, tap tripped, breach\n- [ ] Test: a thousand ticks of events allocate nothing and arrive in tick order\n\nDone when: The first anomaly notice reaches Bootstrap through the queue, in order, without an allocation.",
+      "days": 1,
+      "track": "C",
+      "needs": []
+    },
+    {
+      "id": "M4-09",
+      "title": "M4-09 The exposure screen",
+      "body": "**Why this is needed.** The player has to see what the city sees or the game cannot be played carefully. This is\nthe first real screen: credits, each sensor's average against its band, the current rung\nwith a countdown to the next scheduled event, the cover and its upgrade, and a log of\nnotices. It updates on events and dirty flags only.\n\n**What it achieves.** A screen the playtest can be judged on: is the loop legible with rectangles and a few\nbars, and does the player understand why the number moved.\n\n- [ ] UI Toolkit screen in Kea.UI fed only by events from M4-08 and snapshot values pushed by Bootstrap\n- [ ] Per-sensor bar against its band; rung and countdown; cover name and an upgrade button that issues the command\n- [ ] Notice log with pooled rows; nothing rebuilt when nothing changed\n- [ ] Costs nothing per frame while no event arrived and the tick did not change\n\nDone when: Every number on the screen can be traced to a sensor, a rung or the ledger, and the profiler shows the UI idle between events.",
+      "days": 2,
+      "track": "C",
+      "needs": [
+        "M4-08",
+        "M4-07"
+      ]
+    },
+    {
+      "id": "M4-10",
+      "title": "M4-10 Player levers: throttle, disable, dig deeper, spread the heat",
+      "body": "**Why this is needed.** A meter the player can only watch is not a game. At this milestone the levers are the\ncheap physical ones: run the server at part duty, switch it off, move it deeper into\nrock that has not saturated, or spread machines apart so no one spot shows. The passive\nbedrock sink is meant to fail visibly over hours and teach the whole ladder without a\ntooltip; this task makes sure it can be watched.\n\n**What it achieves.** A duty command on the server, the disable command from M3 reachable from the screen, and\nthe thermal overlay confirmed to tell the saturation story with its isotherms at the\ndepths the starter world has.\n\n- [ ] SetDuty command, applied through the building system's duty value so draw, heat and income all scale together\n- [ ] Disable and duty exposed from the inspect panel and the exposure screen\n- [ ] A guided check that the thermal overlay shows bedrock saturating around a server over a session, and the surface warming after it\n- [ ] Tests: half duty halves emitted joules and credits per second\n\nDone when: A player can bring exposure back under the band using only these levers, and can see on the overlay why it worked.",
+      "days": 1,
+      "track": "C",
+      "needs": [
+        "M3-09",
+        "M4-09"
+      ]
+    },
+    {
+      "id": "M4-11",
+      "title": "M4-11 Rule-two guard tests",
+      "body": "**Why this is needed.** The single anti-pattern that would hollow out the project is a line that adds to\nsuspicion for an action. It is cheap to prevent with tests now and nearly impossible to\nremove later. These tests also prove the promise the design makes: a novel way of moving\nheat gets a novel result without anyone writing a rule for it.\n\n**What it achieves.** A set of tests that fail if exposure is ever awarded, if the M4 loop stops being\ndeterministic, or if the physics stops being what the sensor reads.\n\n- [ ] Exposure is a pure function of sampled state: identical worlds with different command histories but identical physics read identical exposure\n- [ ] Nothing awarded: placing, wiring, upgrading, digging with the server off leaves exposure at zero\n- [ ] Determinism: a replayed tape reproduces the sensor averages, exposure, rung schedule and credits tick for tick\n- [ ] Novel route: dumping the server's heat into a flooded pocket instead of dry rock gives a different surface reading with no code path that mentions water\n\nDone when: All four tests pass in CI and the awarded-suspicion test fails if a test double adds to exposure directly.",
+      "days": 1,
+      "track": "D",
+      "needs": [
+        "M4-07"
+      ]
+    },
+    {
+      "id": "M4-12",
+      "title": "M4-12 Bench scenario: the hot office",
+      "body": "**Why this is needed.** The sensor and city systems are budgeted at 0.1 ms together and run at 1 Hz and slower,\nso they should be nearly free; the way to know is to measure them in the same harness as\neverything else, over enough simulated time for the ladder to climb.\n\n**What it achieves.** A fifth scenario that runs the starter world with a server for hours of simulated time,\nasserts budgets, allocation, determinism and the escalation schedule, and runs in CI and\nthe nightly sweep.\n\n- [ ] Scenario: starter world, tap, wire, server at full duty, run until the raid rung or a tick limit\n- [ ] Sensors plus city within 0.1 ms; sim total within 4.5 ms; zero allocation; hash stable\n- [ ] Asserts the rung schedule matches the M4-07 prediction\n- [ ] Added to the pull-request workflow and the nightly sweep\n\nDone when: CI prints five tables and the fifth reaches the raid rung on the predicted tick within budget.",
+      "days": 1,
+      "track": "D",
+      "needs": [
+        "M4-07",
+        "M4-04"
+      ]
+    },
+    {
+      "id": "M4-13",
+      "title": "M4-13 The playtest verdict",
+      "body": "**Why this is needed.** This milestone exists to answer one question: is heat you must hide fun with coloured\nrectangles. If it is not fun now it will not be fun with art, and finding that out here is\nthe cheapest it will ever be. The deliverable is a written answer, not code.\n\n**What it achieves.** A recorded play session against a checklist, a verdict, and the design changed while it\nis still cheap if the verdict says so. The design document's open questions on losing,\nloyalty, money and the city's agency get answers or explicit deferrals.\n\n- [ ] A thirty-minute session on the starter world with the exposure screen, following a written checklist: notice the meter, understand why it moved, find a lever, survive an audit, decide on the cover\n- [ ] Verdict written into the design document with what was compelling, what was confusing, and what the numbers were\n- [ ] Open questions one to four answered or deferred with a reason\n- [ ] If the loop is not compelling: the design change proposed before any art or content milestone starts\n\nDone when: The design document carries a dated verdict and the answers to its own open questions.",
+      "days": 1,
+      "track": "D",
+      "needs": [
+        "M4-10",
+        "M4-12"
+      ]
+    },
+    {
+      "id": "M4-14",
+      "title": "M4-14 Docs close-out: tick table, detection model as built, save handoff",
+      "body": "**Why this is needed.** The architecture and design documents describe the detection model as intended; after\nthis milestone they must describe it as built, with the units, windows and weights that\nwere actually chosen. The save milestone comes next and it needs a list of every stored\nfield M3 and M4 added, and the architecture contradicts itself about which milestone owns\nsaving.\n\n**What it achieves.** Documents that match the code and a handoff M5 can start from.\n\n- [ ] Tick table rows for sensor sampling, city tick and event flush updated to what was built\n- [ ] The detection model section rewritten with the implemented formula, window, weights and the surface exchange boundary\n- [ ] The save section's milestone reference corrected to M5, with a list of every stored field added since M2: occupancy, conduit, buildings, networks, packets, reservoirs, sensors, exposure, rung schedule, ledger, cover\n- [ ] Actual days against estimate\n\nDone when: Someone reading the architecture and the design cold gets the detection model as built and M5 has its field list.",
+      "days": 0.5,
+      "track": "D",
+      "needs": [
+        "M4-13"
+      ]
+    }
+  ]
+}

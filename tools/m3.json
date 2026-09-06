@@ -1,0 +1,236 @@
+{
+  "milestone": {
+    "title": "M3 — Networks, a city tap, and a server that makes heat",
+    "description": "Systems compose. Exit gate: on the starter world, tap the city feeder, wire a server, watch it draw power and warm the rock around it on the thermal overlay; tap the water main and fill a reservoir through pipe packets; all headless in CI with networks under 0.3 ms, buildings under 0.5 ms, the whole tick under 4.5 ms, deterministic and allocation-free. Also closes the two bugs found in review: water that loses its identity when it flows, and dug cells that need a suit. 22 tasks, 30.5 dev-days estimated, ~40 with contingency."
+  },
+  "column": "todo",
+  "tasks": [
+    {
+      "id": "M3-01",
+      "title": "M3-01 Starter world: a surface, a shaft, a feeder and a main",
+      "body": "**Why this is needed.** The composition root and the benchmark both fill the whole world with rock. There is\nnothing to tap, no surface to stand an office on, and no open space to put a machine in.\nReal world generation is milestone 6, and two milestones cannot wait on it.\n\n**What it achieves.** One hand-scripted, deterministic starter world that Bootstrap and the bench build from\nthe same code: a band of air across the top rows with the office footprint and a shaft\ndown, a shallow rubble band, rock below, a city power feeder and a water main laid as steel\ntrunk cells at their depth bands and registered so a tap can find them, the main holding\nwater at trunk pressure so opening it floods. It is the ground M3 places on and the surface\nM4 measures at. Not a generator: it will be replaced by M6 and nothing should depend on its\nexact shape beyond the constants it introduces.\n\n- [ ] Surface row count added to WorldConst, with the ambient temperature constant beside it\n- [ ] Fixture builds air, rubble, rock, office footprint, shaft, feeder run, main run; every cell has element, flags, mass and energy set consistently\n- [ ] Trunk cells are registered with the city side (M3-14 reads the list) rather than found by scanning for steel\n- [ ] Bootstrap and the bench call the same fixture; the fill-with-rock lines are deleted\n- [ ] Test pins the fixture with a grid hash so an accidental change is a failing test, not a surprise\n\nDone when: Bootstrap and the bench build the identical world, the hash test pins it, and the office, shaft, feeder and main are where the fixture says they are.",
+      "days": 1.5,
+      "track": "A",
+      "needs": []
+    },
+    {
+      "id": "M3-02",
+      "title": "M3-02 Element identity follows the water",
+      "body": "**Why this is needed.** The liquid solver moves mass and nothing else. When water flows into an empty cell, that\ncell keeps its vacuum element and vacuum flag while holding water. Three things then go\nwrong: the liquid overlay draws only cells flagged as liquid, so water is invisible\neverywhere except where it started; the thermal solver uses the vacuum element's zero\nspecific heat, so the cell reads 0 K and conducts nothing; and a water tap delivering into\na room would deliver invisible, thermally inert mass. The solver document says this is\noutside the solver slice, and no task since has owned it. It is a bug today.\n\n**What it achieves.** A cell's element and physical flag always agree with the mass it holds, without\nbreaking the one-element-per-cell rule or mass conservation. Water you can see wherever it\ngoes, that carries and reads its own temperature, and a contamination marker that travels\nwith the flow instead of staying where the waste was poured.\n\n- [ ] After the liquid step, an open (air or vacuum) cell that received mass takes the donor's liquid element and the Liquid flag; the Constructed bit is preserved\n- [ ] A liquid cell whose mass falls below the solver's flow floor reverts to the open element; the residual is folded into the cell it last flowed to, so the total is unchanged\n- [ ] The contaminant marker follows the flow: a cell becomes marked when contaminated mass arrives\n- [ ] Conservation and determinism tests extended to cover flow into empty cells and draining\n- [ ] Overlay test: water poured into a dry cavern renders in every cell it reaches; thermal test: warm water arriving in a cold cavern keeps its temperature\n\nDone when: The breach scenario shows water everywhere it went on the liquid overlay, and the relative mass drift is no worse than before.",
+      "days": 2,
+      "track": "A",
+      "needs": []
+    },
+    {
+      "id": "M3-03",
+      "title": "M3-03 Dug cells are air, and air carries heat",
+      "body": "**Why this is needed.** Digging leaves vacuum. The nav bake marks any cell that is not air as needing a suit, so\nevery corridor the member digs is one it cannot breathe in, and the ventilation network\nthat would make cells breathable is milestone 8. Thermally, a vacuum cell has no mass, so\na machine standing in one has nothing to warm. Air already exists as an element and as a\ncell state; nothing says when a cell gets it.\n\n**What it achieves.** A decision applied everywhere: open cells inside the world are Air with a nominal mass\nat ambient temperature, and Vacuum means nothing-is-there. Air conducts weakly, can be\ndisplaced by water, and has no pressure and no flow. This is still not a gas simulation.\n\n- [ ] Dig writes Air with the air element's nominal mass and ambient energy; deconstruct does the same\n- [ ] The starter fixture's open cells are Air\n- [ ] Water entering an air cell replaces it; the air's mass is discarded and the conservation notes say so, because air is a cell state and not simulated\n- [ ] Nav bake: a dug corridor is walkable without a suit\n- [ ] Thermal test: a warm cell loses heat into neighbouring air far more slowly than into rock\n\nDone when: The member walks a dug corridor without a suit, and a warm air pocket reads on the thermal overlay.",
+      "days": 1,
+      "track": "A",
+      "needs": [
+        "M3-01"
+      ]
+    },
+    {
+      "id": "M3-04",
+      "title": "M3-04 Building definitions, in code and baked from assets",
+      "body": "**Why this is needed.** Every tick the simulation needs numbers about buildings it can read without Unity:\nfootprint, material, power draw, heat output, network ports, where it may be placed. The\nelement table already established how definitions work here: a blittable struct table with\nstable string ids, defined in code for headless tests and benchmarks, and baked from\nScriptableObjects in the editor. A second pattern for buildings would be a second thing to\nkeep in step.\n\n**What it achieves.** The four buildings M3 needs, readable headlessly and authored in the inspector: the\nillegal power feeder tap, the illegal water main tap, the server rack, and the reservoir\nvessel. Any later building is one more row.\n\n- [ ] BuildingDef struct (stable id, footprint, material element, power draw, heat output, water in and out per tick, wire and pipe ports, placement rule, rated throughput) and a dense BuildingTable\n- [ ] BuiltInBuildings defines the four in code, mirroring BuiltInElements\n- [ ] BuildingDefAsset and a baker in Kea.Data with the same validation as the element baker; only the .cs files are written, the assets are created in Unity by the author from listed steps\n- [ ] Test proves the code table and the baked table are identical\n- [ ] Note in the art docs that the server rack has no sprite prompt yet\n\nDone when: Headless code and the Unity baker produce the same table and a test says so.",
+      "days": 1,
+      "track": "B",
+      "needs": []
+    },
+    {
+      "id": "M3-05",
+      "title": "M3-05 Building storage: dense arrays, handles, footprints",
+      "body": "**Why this is needed.** The most expensive mistake available is a GameObject per building with a dozen\ncomponents ticking themselves; two thousand of those is the classic late-game death.\nBuildings are rows in dense arrays that systems loop, referenced by integer handles with a\ngeneration counter, the same handle the member got in M2-03. Placement also needs to know\nwhat is already in a cell, and nothing records that.\n\n**What it achieves.** Buildings exist in the simulation as data. Placing one is validated against the grid,\na stale handle is provably dead, and the footprint has thermal mass so the conduction\nsolver can carry its heat away. Two things are decided here and recorded: placement is\ninstant (construction as agent work is milestone 7), and footprint cells become\nconstructed solid cells of the building's material. The alternative, heating the air the\nmachine stands in, was rejected because air has almost no thermal mass and no convection,\nso the reading would spike in one cell and never spread.\n\n- [ ] Building struct holds stored facts only: def, cell, orientation, phase, progress, integrity, disabled-by-player, concealed. No status field\n- [ ] BuildingSet: place, remove, resolve handle, iterate by category; handles recycle with a bumped generation\n- [ ] Per-cell occupancy (a ushort building index) added to WorldGrid; storage version bumped\n- [ ] Placement validation: footprint cells open, floor solid, plus the def's own rule (a tap must sit on a trunk of its type)\n- [ ] Placing writes the footprint cells as the def's material, Solid and Constructed, with mass and ambient energy; removing returns them to Air\n- [ ] Tests: place, resolve, remove, stale handle, occupancy consistency, and 2000 buildings placed with zero allocation after warm-up\n\nDone when: A placed server occupies its cells, shows up in occupancy, has thermal mass, and a handle held across its removal resolves to nothing.",
+      "days": 1.5,
+      "track": "B",
+      "needs": [
+        "M3-04",
+        "M2-03"
+      ]
+    },
+    {
+      "id": "M3-06",
+      "title": "M3-06 Place, deconstruct and disable commands, with placeholder input",
+      "body": "**Why this is needed.** Orders reach the world through the command queue at a tick boundary and are recorded\nfor replay. A building placed by poking the grid from a MonoBehaviour would skip both and\nsilently break the determinism test that M1-16 built.\n\n**What it achieves.** The player can place, remove and switch off buildings, every one of those orders is on\nthe recorded tape, and a replay reproduces the same world.\n\n- [ ] PlaceBuilding, Deconstruct and SetDisabled commands as flat structs; the command system applies them in order\n- [ ] Kea.Input tool: number keys pick a definition, right mouse places, a key deconstructs and another toggles disabled; input never touches the grid\n- [ ] Replay test extended: a tape with placements and removals hashes identically on replay\n- [ ] Fix the NavBaker comment that says the build system arrives in M4; it arrives here\n\nDone when: A server placed by mouse appears one tick later, and a replayed tape with placements reproduces the world hash.",
+      "days": 1,
+      "track": "B",
+      "needs": [
+        "M3-05"
+      ]
+    },
+    {
+      "id": "M3-07",
+      "title": "M3-07 Derived operating status and the one display precedence",
+      "body": "**Why this is needed.** A stored machine-state enum desyncs the moment the network drops and nothing remembers\nto update it; a derived status cannot be wrong because it is the query. The view also\nneeds one answer when a building is damaged and unpowered and disabled at once, so the\norder of precedence has to live in exactly one place. Starved and Unpowered and Overloaded\neach earn a separate answer because each has a different fix, and this game is more\nnetwork-dependent than most.\n\n**What it achieves.** Every building has an operating status computed from the world each tick and one\ndisplay state chosen by a fixed precedence, and a test that will fail if anyone ever adds a\nstored status field.\n\n- [ ] BuildingStatus.Derive(stored building, network result) yields Powered, Starved, Overloaded, Running, Idle\n- [ ] DisplayState.Of(...) applies the precedence: Destroyed, Planned/Constructing, Concealed, Damaged, Disabled, Unpowered, Starved, Overloaded, Running, Idle\n- [ ] Reflection guard test: the Building struct has no field named State or Status\n- [ ] Truth-table tests for every combination the precedence lists\n\nDone when: Every row of the precedence table gives the documented answer and the guard test passes.",
+      "days": 1,
+      "track": "B",
+      "needs": [
+        "M3-05"
+      ]
+    },
+    {
+      "id": "M3-08",
+      "title": "M3-08 Building update system, every second tick, offset from agents",
+      "body": "**Why this is needed.** Buildings run on their own slot in the tick order at half rate, on odd ticks so they\nnever share a tick with the agent group and produce a sawtooth frame time. The network\nsolve runs earlier in the same tick, so a building reads this tick's power result and posts\nits demand for the next solve. That one-tick latency is the read-earlier, write-later rule\nand must be documented rather than fought.\n\n**What it achieves.** Buildings consume, produce and run as data looped by one system, with the server the\nfirst machine that runs when powered and enabled. Heat and water leave through the\nneighbouring tasks; this one owns the loop, the demand, and the cost.\n\n- [ ] BuildingSystem bound to the building slot; loops typed lists (consumers, producers, taps, storages) rather than one big switch\n- [ ] Consumers post demand and producers post supply for the next network solve; running buildings advance work\n- [ ] The server derives Running when powered, enabled and intact; a duty setting scales its draw and heat so M4 can throttle it\n- [ ] Profiler marker; zero allocation across a thousand ticks\n- [ ] Tick-order test: the server is Running on the tick after its wire connects and Unpowered the tick after the wire is cut\n\nDone when: Two thousand buildings update inside 0.5 ms, and the latency test passes.",
+      "days": 1.5,
+      "track": "B",
+      "needs": [
+        "M3-07",
+        "M3-12"
+      ]
+    },
+    {
+      "id": "M3-09",
+      "title": "M3-09 Heat emission into the grid",
+      "body": "**Why this is needed.** The server's heat is the reason the thermal solver exists. Emission has to be joules\nadded to cells the solver already conducts, never a temperature poke, or the exposure model\nwill later read heat nobody can account for. The building's footprint cells now carry its\nthermal mass, so the existing conduction moves the heat out through floor and walls with no\nnew physics.\n\n**What it achieves.** A running server warms its own body, then the rock around it, then saturates the rock,\nexactly the arc the design wants the player to watch on the thermal overlay. The\nthermal-load benchmark stops poking a seam by hand and uses a real machine.\n\n- [ ] Each running building adds heat output times step seconds into its footprint cells' energy on the building tick and wakes the chunk\n- [ ] Emission scales with the duty setting from M3-08\n- [ ] Tests: total energy rises by exactly the emitted joules; a gradient forms outward; the saturation curve matches the M1-19 bedrock test; a server in a flooded pocket warms the water\n- [ ] The thermal-load scenario in the bench is rewritten around a server and gives the same curve as before\n\nDone when: The thermal overlay shows a server warming its surroundings and the energy accounting is exact.",
+      "days": 1.5,
+      "track": "B",
+      "needs": [
+        "M3-08",
+        "M3-03"
+      ]
+    },
+    {
+      "id": "M3-10",
+      "title": "M3-10 Conduit layer in the grid",
+      "body": "**Why this is needed.** Network connectivity has to know which cells carry a wire or a pipe, and the cell storage\nhas no field for it. One byte per cell as a bitmask is cheap, lives beside the other\nstructure-of-arrays fields, follows chunk dirtiness, and saves as a block. Bits are\nreserved now for vent, data and waste so those networks do not need a storage change.\n\n**What it achieves.** The player can lay and remove wire and pipe, the change dirties the right chunk and the\nright network, and nothing else has to learn a new place to look.\n\n- [ ] Conduit span in WorldGrid with bits for wire and pipe and reserved bits for vent, data and waste; storage version bumped\n- [ ] LayConduit and RemoveConduit commands and a placeholder input tool\n- [ ] Dig does not clear a conduit (wires run through walls); deconstruct does\n- [ ] A change marks the chunk network-dirty for M3-11; nav and presentation are untouched\n- [ ] Snapshot carries the conduit span, chunk-copied like elements\n\nDone when: Laying a wire dirties exactly its chunk's network flag and a test round-trips the byte.",
+      "days": 1,
+      "track": "C",
+      "needs": []
+    },
+    {
+      "id": "M3-11",
+      "title": "M3-11 Network connectivity on the shared incremental flood-fill",
+      "body": "**Why this is needed.** Rooms, walk regions and utility networks are the same problem: incremental connected\ncomponents over the grid with a different predicate. The architecture insists on one\nimplementation. M2-02 is writing the first for walking; this is the second consumer and\nlands weeks later, so M2-02 has to be generic now rather than specialised to feet.\n\n**What it achieves.** Every wire and pipe network is a component that is rebuilt only when something in it\nchanges, with a cost proportional to the change and not to the world.\n\n- [ ] Per network type, components over conduit cells plus building ports, using the same flood-fill type as the walk regions with a network predicate\n- [ ] Rebuild only components touched by a conduit or building change; a quiet tick costs nothing\n- [ ] Network id per cell is derived, never saved; a fresh load rebuilds it\n- [ ] Tests: cut a wire and get two ids in one tick, re-lay it and get one, and the rebuilt count equals the touched count\n\nDone when: Cutting and re-laying a wire splits and merges networks in one tick each, and a tick with no change does no work.",
+      "days": 2,
+      "track": "C",
+      "needs": [
+        "M3-10",
+        "M3-05",
+        "M2-02"
+      ]
+    },
+    {
+      "id": "M3-12",
+      "title": "M3-12 Power network solve",
+      "body": "**Why this is needed.** Electricity is a graph, not a fluid, and must not be simulated cell by cell. Each tick,\nfor dirty networks only: sum supply from the taps on it, bounded by the feeder they sit on;\nsum demand from consumers; distribute; flag overload when demand exceeds the rating of the\ntap or the wire. The result is what buildings derive Powered, Starved and Overloaded from.\n\n**What it achieves.** A server on a wire from a tap runs; too many servers on one tap overload it and the\nlast one starves, which the player can see and fix. All networks together stay under\n0.3 ms.\n\n- [ ] NetworkSystem bound to the network slot, every tick, dirty networks only\n- [ ] PowerResult per network: supply, demand, satisfied fraction, overloaded; read by the building system\n- [ ] Wire and tap ratings come from definitions, not literals\n- [ ] Deterministic distribution order (by handle, never by dictionary order)\n- [ ] Test with 200 buildings on one network under 0.3 ms; overload and starvation tests\n\nDone when: One server runs, two past the tap's rating flag overload and the second derives Starved, and the budget holds.",
+      "days": 1.5,
+      "track": "C",
+      "needs": [
+        "M3-11",
+        "M3-14"
+      ]
+    },
+    {
+      "id": "M3-13",
+      "title": "M3-13 Water network: pipes carry packets",
+      "body": "**Why this is needed.** Pipes carry discrete packets that move one segment per tick. It is cheap, the player\ncan read it, and it makes throughput a lever they can see. A water tap pulls a packet from\nthe main, the pipe carries it, the reservoir stores it. Water in a pipe is mass that is not\non the grid, so the conservation totals in the HUD and the bench must include it or the\ndrift figure quietly lies.\n\n**What it achieves.** Tapped water visibly travels to where it is stored, and mass is conserved across grid,\npipes and reservoirs together.\n\n- [ ] Packet struct: element, mass, energy, contaminant; a preallocated ring per pipe network; one segment per tick\n- [ ] The water tap injects a packet per tick at its flow rate; the reservoir accepts packets up to capacity and exposes a level\n- [ ] Conservation totals become grid plus packets plus reservoirs, in the HUD and the bench\n- [ ] Determinism: packet order is by network id and segment, never by insertion into a hash set\n- [ ] Tests: fill rate equals tap flow; a full reservoir backs the pipe up; totals constant\n\nDone when: A tapped main fills a reservoir at the tap's rate and the combined mass total is constant to the same tolerance as the grid alone.",
+      "days": 2,
+      "track": "C",
+      "needs": [
+        "M3-11",
+        "M3-14",
+        "M3-02"
+      ]
+    },
+    {
+      "id": "M3-14",
+      "title": "M3-14 The city side: feeder, main, and what a tap is",
+      "body": "**Why this is needed.** The detection model reads the difference between what the city meters and what you\ndraw, so the city side has to be a real network with capacity and a metered load, not an\ninfinite source. A tap is a node in both graphs: it has a flow rate, a detectability\nprofile (how much of its draw it spoofs off the meter), and a failure mode. This is the\nfirst code in the city namespace and the numbers M4 samples come from here.\n\n**What it achieves.** The city's feeder and main exist as objects with capacity, pressure band, telemetry\nquality and legitimate metered load; taps draw against them and report draw and metered\nseparately; over-drawing has a physical consequence rather than a rule. The water tap's\nfailure opens the main into the room, and M1's breach solver floods it, which is the\ndesigned disaster built from existing physics.\n\n- [ ] CityFeeder and CityMain types in Kea.Core.City with capacity, depth band, telemetry quality and metered load, registered from the M3-01 fixture\n- [ ] Tap draw, spoof fraction and the two exposed numbers: actual draw and metered draw\n- [ ] Placement rule: a tap must sit on a trunk cell of its type (validated by M3-05)\n- [ ] Failure modes: the power tap trips and loses integrity when over-drawn; the water tap's failure turns its trunk cell to water at trunk pressure so the existing breach solver does the rest\n- [ ] Tests for draw versus metered, tripping, and the flood following a failed water tap\n\nDone when: Over-drawing a water tap floods the tap room through the existing solver, and the feeder reports draw and metered as two different numbers.",
+      "days": 2,
+      "track": "C",
+      "needs": [
+        "M3-01",
+        "M3-05"
+      ]
+    },
+    {
+      "id": "M3-15",
+      "title": "M3-15 Buildings, conduits and networks in the snapshot",
+      "body": "**Why this is needed.** The view reads snapshots only and never a live array; that boundary is what lets the tick\nmove to another thread later without a rewrite. M2-15 set the pattern for agents. Everything\nM3 adds has to reach the renderer the same way.\n\n**What it achieves.** The view can draw every building, wire, pipe, packet and reservoir level from the\nsnapshot alone, with zero allocation per tick.\n\n- [ ] BuildingSnapshot array: handle, def, cell, display state, level, heat output, integrity, sized once at construction\n- [ ] Conduit span chunk-copied like elements; per-network state table; reservoir levels; packet positions\n- [ ] Published in the snapshot slot by the same publisher, no second publisher\n- [ ] Zero allocation held by the existing thousand-tick assertion\n- [ ] Test: a building's display state read through the snapshot matches what Derive returned that tick\n\nDone when: Everything M3 built renders from the snapshot alone and the allocation test stays green.",
+      "days": 1,
+      "track": "D",
+      "needs": [
+        "M3-08",
+        "M3-11",
+        "M3-13",
+        "M2-15"
+      ]
+    },
+    {
+      "id": "M3-16",
+      "title": "M3-16 Placeholder building view, pooled, coloured by display state",
+      "body": "**Why this is needed.** Coloured rectangles only, as the whole first slice demands. But the shape matters now:\nviews come from a pool keyed by handle, are created when a building enters the camera and\nreturned when it leaves, and are not synced off-screen. That is the architecture for\nthousands of machines and it costs nothing to do from the first one.\n\n**What it achieves.** You can watch a server go from running to unpowered when you cut its wire, and tell\nfrom the colour which of the ten display states it is in.\n\n- [ ] BuildingView pool in Kea.View keyed by handle; created on entering the frustum, returned on exit, not updated off-screen\n- [ ] One colour per display state; a fill bar for the reservoir level\n- [ ] No per-building MonoBehaviour Update; sync from the snapshot each presented tick only\n- [ ] Costs nothing when no buildings exist\n\nDone when: Cutting a server's wire changes its colour on the next presented tick, and the pool holds only the visible buildings.",
+      "days": 1,
+      "track": "D",
+      "needs": [
+        "M3-15",
+        "M2-16"
+      ]
+    },
+    {
+      "id": "M3-17",
+      "title": "M3-17 Network overlay",
+      "body": "**Why this is needed.** Wires, pipes and their state need an overlay in the reserved functional colours, amber\nfor power and blue for water, so the player can debug a network by looking. The packed data\ntexture has all four channels spoken for and only two reserved bits, so the packing contract\nhas to be extended deliberately rather than reinterpreted.\n\n**What it achieves.** One more mode in the overlay cycle that shows every conduit, whether it is powered,\nwhere it is overloaded, and packets moving along pipes, without a texture and a quad per\nmode and inside the render CPU budget.\n\n- [ ] Decide by measurement between the reserved alpha bits and a second small texture for conduit presence and state; record the choice in the overlay document\n- [ ] Overlay mode in the F1 cycle; unpowered dimmed, overloaded pulsing, packets drawn from snapshot positions\n- [ ] Pack and upload cost measured and kept inside the 3 ms render CPU line together with the existing overlays\n- [ ] Shader tests in the existing overlay test style\n\nDone when: F1 reaches a mode where wires and pipes are visible and their state matches the inspect panel.",
+      "days": 1.5,
+      "track": "D",
+      "needs": [
+        "M3-15"
+      ]
+    },
+    {
+      "id": "M3-18",
+      "title": "M3-18 Inspect panel: the first Kea.UI screen, event-driven",
+      "body": "**Why this is needed.** Kea.UI is empty. M4 needs the player to read a tap's draw against its meter and a\nserver's heat output without the debug HUD, because reading those numbers is how the\ndetection game is played. UI must be pushed from changes and dirty-flagged, never polled\nper frame, or it quietly becomes the most expensive system in the game.\n\n**What it achieves.** Click a building and read what it is, what it is doing, what it draws and what it\nemits; for a tap, draw and metered side by side.\n\n- [ ] UI Toolkit panel in Kea.UI; Bootstrap pushes values, the panel never reaches into the simulation\n- [ ] Selection resolves the click through occupancy in the snapshot\n- [ ] Updates only when the presented tick changes and the selected building's snapshot differs\n- [ ] Shows def name, display state, draw, heat output, level; for taps, draw versus metered\n\nDone when: Selecting a tap shows two numbers that differ by its spoof fraction, and the panel does no work while nothing changes.",
+      "days": 1,
+      "track": "D",
+      "needs": [
+        "M3-15"
+      ]
+    },
+    {
+      "id": "M3-19",
+      "title": "M3-19 Liquid solver on Burst jobs, bit-identical to the reference",
+      "body": "**Why this is needed.** The liquid pass measures 3.02 ms against its 1.2 ms line and the architecture records\nthat no task owns the fix. M3 adds networks and buildings, which together are budgeted at\n0.8 ms, and that would leave the whole tick at roughly 4.2 of 4.5 ms with the overrun\nstill in place. The seam is already designed: Core declares a kernel interface, Sim\nimplements it with Burst over the awake spans through the no-copy NativeArray view,\nBootstrap injects it, and the bench compares the two.\n\n**What it achieves.** The liquid pass inside budget on the breach scenario, with the plain C# solver kept as\nthe reference the Burst one is proven identical against on every run. The headless dotnet\nbench cannot run Burst, so the Unity edit-mode bench becomes the place that reports the\nproduction number, and the report says which is which.\n\n- [ ] ILiquidKernel in Kea.Core with the current solver as the reference implementation\n- [ ] Kea.Sim job implementation of the staged passes over the awake spans; no copying at the boundary\n- [ ] Kea.Tests.Bench asserts bit-identical grid hashes between the two kernels on the breach scenario\n- [ ] Unity edit-mode timing of the Burst kernel on the breach scenario, recorded next to the headless figure\n- [ ] Target: liquid flux and apply inside 1.2 ms\n\nDone when: The breach scenario under Burst is inside budget in Unity and hashes identical to the C# reference.",
+      "days": 3,
+      "track": "E",
+      "needs": []
+    },
+    {
+      "id": "M3-20",
+      "title": "M3-20 Bench scenario: the server room",
+      "body": "**Why this is needed.** The exit gate has to be a headless, reproducible scenario that CI runs on every pull\nrequest, like the breach. Otherwise M3 is proven once on one machine and then decays.\n\n**What it achieves.** A fourth scenario that builds the starter world, taps the feeder, wires a server, taps\nthe main, pipes to a reservoir, and runs two thousand ticks against the budgets, the\ndeterminism hash, the allocation assertion and the combined mass total.\n\n- [ ] Scenario script in the bench: fixture, tap, wire, server, water tap, pipe, reservoir\n- [ ] Per-system times reported against networks 0.3 ms, buildings 0.5 ms, sim total 4.5 ms with every divisor landing on one tick\n- [ ] Zero allocation, determinism hash, totals across grid plus packets plus reservoirs\n- [ ] Added to the pull-request workflow and the Travis nightly sweep\n\nDone when: CI prints four scenario tables and the fourth meets its budgets.",
+      "days": 1.5,
+      "track": "E",
+      "needs": [
+        "M3-09",
+        "M3-13",
+        "M3-14"
+      ]
+    },
+    {
+      "id": "M3-21",
+      "title": "M3-21 Render budget measured in Unity",
+      "body": "**Why this is needed.** The architecture's own budget table says render CPU and draw calls were never measured.\nWith terrain, three overlays, a member and buildings on screen there is finally something\nto measure.\n\n**What it achieves.** A number in the table instead of the word open, and if it is over, a named cause.\n\n- [ ] Frame Debugger and profiler pass on the starter world at 1x and 3x with every overlay mode\n- [ ] Draw calls and render CPU recorded in the architecture's budget table\n- [ ] If over 300 calls or 3 ms, the cause is named and a task filed\n\nDone when: The budget table has measured render numbers with a date and a machine beside them.",
+      "days": 0.5,
+      "track": "E",
+      "needs": [
+        "M3-16",
+        "M3-17"
+      ]
+    },
+    {
+      "id": "M3-22",
+      "title": "M3-22 Docs close-out: tick table, storage, decisions, stale lines",
+      "body": "**Why this is needed.** A milestone is not finished while the documents describe a plan instead of what was\nbuilt. Several lines are already stale from M1 and this milestone adds two storage fields\nand four decisions that the next person needs to find without reading the code.\n\n**What it achieves.** Someone reading the architecture and the solver document cold gets the system as\nbuilt.\n\n- [ ] Tick table rows for network solve and building update updated to what was built, including the one-tick demand latency\n- [ ] Storage version and the two new per-cell spans (occupancy, conduit) documented\n- [ ] Element identity contract added to the liquid solver document\n- [ ] Decisions recorded: air on dig, solid footprints with thermal mass, instant placement until M7\n- [ ] Stale lines removed: overlay acceptance pending, Burst and sleeping budgets unverified; the assembly table gains Kea.Tests.View and the Core folder list gains Commands\n- [ ] Actual days against estimate noted for M4 planning\n\nDone when: The documents match the code and the estimate table has real numbers.",
+      "days": 0.5,
+      "track": "E",
+      "needs": [
+        "M3-20",
+        "M3-21"
+      ]
+    }
+  ]
+}

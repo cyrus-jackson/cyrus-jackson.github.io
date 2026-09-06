@@ -736,6 +736,7 @@ function renderSettings() {
           <label><input type="checkbox" id="fxClocks" ${S.fx.clocks ? 'checked' : ''}> Launch clocks <span class="hint">live T-minus on milestones</span></label>
           <label><input type="checkbox" id="fxStreaks" ${S.fx.streaks ? 'checked' : ''}> Streaks &amp; records <span class="hint">in Progress</span></label>
           <label><input type="checkbox" id="fxPet" ${S.fx.pet !== false ? 'checked' : ''}> Sidebar kea <span class="hint">fed by shipped tasks</span></label>
+          <label><input type="checkbox" id="fxWander" ${S.fx.wander !== false ? 'checked' : ''}> Kea wanders <span class="hint">flies the screen now and then</span></label>
         </div>
         <div class="row" style="margin-top:13px">
           <div class="field" style="margin:0;flex:0 0 170px"><label>Burst style</label>
@@ -919,6 +920,7 @@ function wire() {
   const pet = $('#pet');
   if (pet) pet.onclick = () => patPet();
   paintPet();
+  schedulePetFlight();
   $('#nav').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) { go(b.dataset.view); drawer(false); } });
 
   $('#repoSelect').addEventListener('change', e => {
@@ -1006,7 +1008,7 @@ function wire() {
       S.fx = { ...S.fx,
         confetti: $('#fxConfetti').checked, boom: $('#fxBoom').value, boomStyle: $('#fxBoomStyle').value,
         covers: $('#fxCovers').checked, ambient: $('#fxAmbient').checked, dust: $('#fxDust').value,
-        clocks: $('#fxClocks').checked, streaks: $('#fxStreaks').checked, pet: $('#fxPet').checked };
+        clocks: $('#fxClocks').checked, streaks: $('#fxStreaks').checked, pet: $('#fxPet').checked, wander: $('#fxWander').checked };
       store.set('fx', S.fx);
       const petName = $('#fxPetName').value.trim().slice(0, 24);
       if (petName) { S.pet.name = petName; savePet(); }

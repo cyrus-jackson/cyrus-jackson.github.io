@@ -217,6 +217,41 @@
   color-scheme: light;
 }
 
+/* — Outrun: a colorful retro future. Hot-pink sunset over deep purple, chrome-cyan trim. — */
+[data-theme="outrun"] {
+  --bg:        #150826;
+  --bg-tint:   radial-gradient(1000px 480px at 50% 108%, #ff2e88 0%, transparent 62%),
+               radial-gradient(760px 420px at 88% -6%, #22d3ee 0%, transparent 55%),
+               radial-gradient(680px 420px at 6% 6%, #7c3aed 0%, transparent 58%);
+  --panel:     #1e0b33;
+  --panel-2:   #270e42;
+  --sunken:    #180826;
+  --surface:   #241040;
+  --surface-2: #2e1550;
+  --line:      #3f1d63;
+  --line-2:    #5b2a86;
+  --fg:        #f6ecff;
+  --fg-dim:    #c4a8e8;
+  --fg-faint:  #8f6db8;
+  --accent:    #ff5df2;
+  --accent-2:  #22d3ee;
+  --accent-soft:#3d1150;
+  --on-accent: #2b0636;
+  --ok:        #3df5a6;
+  --warn:      #ffb02e;
+  --bad:       #ff4d6d;
+  --merged:    #a78bfa;
+  --draft:     #8f6db8;
+  --col-1:     #a78bfa;
+  --col-2:     #22d3ee;
+  --col-3:     #ff5df2;
+  --col-4:     #b6ff5d;
+  --shadow-1:  0 1px 2px rgba(0,0,0,.5), 0 6px 18px -8px rgba(0,0,0,.7);
+  --shadow-2:  0 18px 50px -12px rgba(0,0,0,.85);
+  --glow:      0 0 26px -4px var(--accent);
+  color-scheme: dark;
+}
+
 /* ---------- 2. BASE ---------- */
 
 * { box-sizing: border-box; }
@@ -1037,4 +1072,18 @@ body.is-loading .k-mark { animation: k-orbit .8s steps(24) infinite; }
 @keyframes petZzz { 0% { opacity: 0; transform: translateY(2px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) {
   .pet svg, .pet-eye, .pet.is-sleeping .pet-zzz { animation: none; }
+}
+
+#petFly {
+  position: fixed; left: 0; top: 0; width: 56px; height: 56px; z-index: 850;
+  pointer-events: none; opacity: 1; transition: opacity .4s var(--ease);
+}
+#petFly svg { width: 56px; height: 56px; overflow: visible; }
+#petFly.is-flying svg { animation: petFlap .32s ease-in-out infinite; }
+@keyframes petFlap {
+  0%,100% { transform: scaleY(1); }
+  50% { transform: scaleY(.88) translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #petFly { display: none; }
 }

@@ -42,7 +42,7 @@ A single-page project tracker that runs entirely in the browser and uses **GitHu
   `Temp/` and `node_modules/` are filtered out. A branch picker sits above the list, because design docs often
   land on a feature branch before they reach the default one. Hex codes render as colour swatches; click one
   to copy it.
-- **Six themes** — Kea Neon, Atompunk, Midnight, Terminal, Paper, Mist. Picker is bottom-left.
+- **Seven themes** — Kea Neon, Atompunk, Midnight, Terminal, Paper, Mist, Outrun. Picker is bottom-left.
 
 ### Things that save keystrokes
 
@@ -228,7 +228,7 @@ board order and setting in browsers that already have them.
 
 ```
 index.html          markup + inline SVG icon sprite
-assets/app.css      design tokens, six themes, components
+assets/app.css      design tokens, seven themes, components
 assets/app.js       state, GitHub API, board, drag & drop, views
 data/inspiration.json   written by the app
 data/uploads/       images uploaded from the app
