@@ -591,11 +591,13 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 }
 
 .blocked {
+  display: inline-flex; align-items: center; gap: 4px;
   font-size: 10px; font-weight: 650; letter-spacing: .02em;
-  padding: 1px 7px; border-radius: 20px; cursor: pointer;
+  padding: 1px 7px 1px 5px; border-radius: 20px; cursor: pointer;
   color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent);
   background: color-mix(in srgb, var(--bad) 11%, transparent);
 }
+.blocked svg { width: 11px; height: 11px; }
 .blocked:hover { filter: brightness(1.15); }
 
 .link-list { display: flex; flex-direction: column; gap: 6px; }

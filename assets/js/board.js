@@ -243,7 +243,7 @@ function cardHTML(i, links) {
           .filter(x => x && x.number !== i.number && x.state === 'open');
         if (!blockers.length) return '';
         const names = blockers.map(x => `#${x.number}`).join(', ');
-        return `<button class="blocked" data-act="task-open" data-num="${blockers[0].number}" title="Waiting on ${names} — click to open">⛔ blocked</button>`;
+        return `<button class="blocked" data-act="task-open" data-num="${blockers[0].number}" title="Waiting on ${names} — click to open"><svg><use href="#i-block"/></svg>blocked</button>`;
       })()}
       ${(() => {
         const d = idleDays(i);
