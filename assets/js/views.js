@@ -207,6 +207,7 @@ async function openTask(num) {
     </div>
     <div class="modal-foot">
       <a class="btn btn-ghost" href="${attr(issue.html_url)}" target="_blank" rel="noopener"><svg><use href="#i-github"/></svg>Open on GitHub</a>
+      ${linked.slice(0, 3).map(p => `<a class="btn btn-ghost" href="${attr(p.html_url)}" target="_blank" rel="noopener" title="${attr(p.title)}"><svg><use href="#i-pr"/></svg>PR #${p.number}</a>`).join('')}
       <span class="spacer"></span>
       <button class="btn btn-ghost" data-act="close">Cancel</button>
       <button class="btn btn-primary" id="tSave"><svg><use href="#i-check"/></svg>Save</button>
