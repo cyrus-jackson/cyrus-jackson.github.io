@@ -1041,7 +1041,11 @@ function findLinkedIssue(id) {
   const num = /^#(\d+)$/.exec(id);
   if (num) return S.issues.find(i => i.number === +num[1]) || null;
   const low = id.toLowerCase();
-  return S.issues.find(i => String(i.title || "").toLowerCase().startsWith(low)) || null;
+  // Prefix match with a word boundary — "m1-02" must not catch "M1-021".
+  return S.issues.find(i => {
+    const t = String(i.title || "").toLowerCase();
+    return t === low || (t.startsWith(low) && !/[a-z0-9]/.test(t[low.length] || ""));
+  }) || null;
 }
 // Reverse links need the whole board, so they are resolved separately and
 // cached per render pass — call resetLinkCache() before a full paint.

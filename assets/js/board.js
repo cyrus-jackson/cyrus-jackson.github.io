@@ -14,10 +14,22 @@ function prLinks() {
   const map = {};
   for (const p of S.prs) {
     const nums = new Set();
-    for (const m of ((p.title || '') + ' ' + (p.body || '')).matchAll(/#(\d{1,6})/g)) nums.add(+m[1]);
+    const text = (p.title || '') + ' ' + (p.body || '');
+    for (const m of text.matchAll(/#(\d{1,6})/g)) nums.add(+m[1]);
+    // Plan IDs (M1-02) in title, body or branch — the workflow this tracker's
+    // milestones actually use. Resolved through live issue titles.
     const br = (p.head && p.head.ref) || '';
-    const bm = br.match(/(?:^|[/_-])(\d{1,5})(?:[/_-]|$)/);
-    if (bm) nums.add(+bm[1]);
+    let planHit = false;
+    for (const m of (text + ' ' + br).matchAll(/\bM(\d{1,2})-(\d{1,3})\b/gi)) {
+      const t = findLinkedIssue(`M${m[1]}-${m[2]}`);
+      if (t) { nums.add(t.number); planHit = true; }
+    }
+    // Bare branch numbers (feat/41-x) only when no plan ID resolved — without
+    // this guard the "01" in "m1-01" would mis-link issue #1.
+    if (!planHit) {
+      const bm = br.match(/(?:^|[/_-])(\d{1,5})(?:[/_-]|$)/);
+      if (bm) nums.add(+bm[1]);
+    }
     for (const n of nums) (map[n] = map[n] || []).push(p);
   }
   return map;
