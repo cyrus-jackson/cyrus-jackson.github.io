@@ -105,6 +105,7 @@ const S = {
   assets  : store.get('assets', { owner:'cyrus-jackson', repo:'cyrus-jackson.github.io', dir:'data/uploads', branch:'master' }),
   closeOnDone: store.get('closeOnDone', true),
   staleDays: store.get('staleDays', DEFAULT_STALE_DAYS),
+  wip: store.get('wip', {}),
   order   : store.get('order', {}),
   inspiration: store.get('inspiration', []),
   inspSha : null,
@@ -1065,4 +1066,70 @@ function blockedBy(issue) {
     }
   }
   return linkCache.get(issue.number) || [];
+}
+
+// Append a dependency ref to the body so needsOf finds it. Prefers the
+// existing list — a "Needs:" line first, the seed footer's needs-list
+// second — and only starts a new line when neither exists. New lines go
+// above a trailing "---" footer so the footer stays last. Duplicate refs
+// are a no-op reported via { added: false }.
+function addNeed(body, ref) {
+  body = String(body || '');
+  const dup = list => list.split(',').map(s => s.trim().toLowerCase()).includes(ref.toLowerCase());
+  const lines = body.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^(\s*needs\s*:\s*)(.+)$/i.exec(lines[i]);
+    if (m) {
+      if (dup(m[2])) return { body, added: false };
+      lines[i] = m[1] + m[2].trim().replace(/\s+$/, '') + ', ' + ref;
+      return { body: lines.join('\n'), added: true };
+    }
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^(.*\bneeds\s+)([A-Za-z0-9_#-]+(?:\s*,\s*[A-Za-z0-9_#-]+)*)\s*$/i.exec(lines[i]);
+    if (m) {
+      if (/^nothing$/i.test(m[2].trim())) continue; // "needs nothing" is empty, not a list
+      if (dup(m[2])) return { body, added: false };
+      lines[i] = m[1] + m[2].trim() + ', ' + ref;
+      return { body: lines.join('\n'), added: true };
+    }
+  }
+  const line = `Needs: ${ref}`;
+  const foot = body.lastIndexOf('\n---');
+  if (foot >= 0) {
+    const head = body.slice(0, foot).replace(/\s+$/, '');
+    const tail = body.slice(foot).replace(/^\s+/, '\n');
+    return { body: head + '\n\n' + line + '\n' + tail, added: true };
+  }
+  return { body: (body.replace(/\s+$/, '') + '\n\n' + line + '\n'), added: true };
+}
+
+// Inverse of addNeed: drop a dependency ref. Emptied "Needs:" lines vanish;
+// an emptied seed-footer list falls back to "needs nothing".
+function removeNeed(body, ref) {
+  body = String(body || '');
+  const low = ref.toLowerCase();
+  const drop = list => list.split(',').map(s => s.trim()).filter(s => s && s.toLowerCase() !== low);
+  const tidy = s => s.replace(/\n{3,}/g, '\n\n');
+  const lines = body.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^(\s*needs\s*:\s*)(.+)$/i.exec(lines[i]);
+    if (!m) continue;
+    if (!m[2].split(',').some(s => s.trim().toLowerCase() === low)) continue;
+    const rest = drop(m[2]);
+    if (!rest.length) lines.splice(i, 1);
+    else lines[i] = m[1] + rest.join(', ');
+    return { body: tidy(lines.join('\n')), removed: true };
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^(.*\bneeds\s+)([A-Za-z0-9_#-]+(?:\s*,\s*[A-Za-z0-9_#-]+)*)\s*$/i.exec(lines[i]);
+    if (m) {
+      if (/^nothing$/i.test(m[2].trim())) continue;
+      const rest = drop(m[2]);
+      if (!m[2].split(',').some(s => s.trim().toLowerCase() === low)) continue;
+      lines[i] = rest.length ? m[1] + rest.join(', ') : m[1] + 'nothing';
+      return { body: tidy(lines.join('\n')), removed: true };
+    }
+  }
+  return { body, removed: false };
 }

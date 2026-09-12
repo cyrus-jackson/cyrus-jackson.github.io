@@ -91,19 +91,62 @@ function wireDropzone(zone, onUrl) {
 function linkSectionHTML(issue) {
   const needs = needsOf(issue).map(id => ({ id, target: findLinkedIssue(id) }));
   const blockers = blockedBy(issue);
-  if (!needs.length && !blockers.length) return '';
-  const row = (text, sub, num, state) => `
+  const cands = S.issues
+    .filter(i => i.number !== issue.number && !isIdea(i) && i.state === 'open')
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, 120);
+  const row = (text, sub, num, state, unref) => `
+    <div class="link-item">
     <button class="link-row" ${num ? `data-act="task-open" data-num="${num}"` : 'disabled'}>
       <span class="mono">${esc(text)}</span><span class="t">${esc(sub)}</span>
       ${state ? `<span class="tag">${esc(state)}</span>` : ''}
-    </button>`;
-  return `<div style="margin-top:18px"><div class="micro" style="margin-bottom:8px">Linked issues</div>
+    </button>${unref ? `<button class="icon-btn danger link-un" data-act="link-del" data-num="${issue.number}" data-ref="${attr(unref)}" title="Remove this link"><svg><use href="#i-x"/></svg></button>` : ''}
+    </div>`;
+  return `<div class="micro" style="margin-bottom:8px">Linked issues</div>
     <div class="link-list">
-      ${needs.map(({ id, target }) => target
-        ? row(`#${target.number}`, target.title, target.number, target.state === 'open' ? 'blocking' : 'done')
-        : row(id, 'Not on the board — no issue matches this id', null, null)).join('')}
-      ${blockers.map(b => row(`#${b.number}`, `${b.title}`, b.number, 'needs this')).join('')}
-    </div></div>`;
+      ${needs.length || blockers.length ? `
+        ${needs.map(({ id, target }) => target
+          ? row(`#${target.number}`, target.title, target.number, target.state === 'open' ? 'blocking' : 'done', id)
+          : row(id, 'Not on the board — no issue matches this id', null, null, id)).join('')}
+        ${blockers.map(b => row(`#${b.number}`, `${b.title}`, b.number, 'needs this')).join('')}`
+      : '<div style="font-size:12px;color:var(--fg-faint)">No linked issues yet — link one below and it shows as blocking until done.</div>'}
+    </div>
+    ${cands.length ? `<div class="link-add">
+      <input class="input" id="linkFilter" data-num="${issue.number}" placeholder="Filter tasks…" autocomplete="off" style="flex:0 0 130px">
+      <select class="select" id="linkPick" title="Link a dependency">
+        ${cands.map(i => `<option value="#${i.number}">#${i.number} — ${esc(i.title)}</option>`).join('')}
+      </select>
+      <button class="btn btn-ghost btn-sm" data-act="link-add" data-num="${issue.number}"><svg><use href="#i-link"/></svg>Link</button>
+    </div>` : ''}`;
+}
+
+function filterLinkPick(input) {
+  const num = +input.dataset.num;
+  const issue = S.issues.find(i => i.number === num);
+  const sel = $('#linkPick');
+  if (!issue || !sel) return;
+  const q = input.value.trim().toLowerCase();
+  const cands = S.issues
+    .filter(i => i.number !== num && !isIdea(i) && i.state === 'open')
+    .filter(i => !q || (`#${i.number} ${i.title}`.toLowerCase().includes(q)))
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, 120);
+  sel.innerHTML = cands.map(i => `<option value="#${i.number}">#${i.number} — ${esc(i.title)}</option>`).join('');
+}
+
+function saveLinks(issue, body, el, verb) {
+  const paint = () => {
+    resetLinkCache();
+    const host = $('#tLinks');
+    if (host) host.innerHTML = linkSectionHTML(issue);
+    if (S.view === 'board') renderBoard();
+  };
+  if (S.demo) { issue.body = body; issue.updated_at = new Date().toISOString(); paint(); toast(verb, 'ok'); return; }
+  el.disabled = true;
+  const { owner, repo } = repoNow();
+  gh(`/repos/${owner}/${repo}/issues/${issue.number}`, { method: 'PATCH', body: { body } })
+    .then(r => { Object.assign(issue, r.data); paint(); toast(verb, 'ok'); })
+    .catch(e => { el.disabled = false; toast(e.message, 'err'); });
 }
 
 function durLineHTML(issue) {
@@ -196,7 +239,7 @@ async function openTask(num) {
       ${linked.length ? `<div style="margin-top:18px"><div class="micro" style="margin-bottom:8px">Linked pull requests</div>
         <div class="pr-list">${linked.map(p => prRowHTML(p, true)).join('')}</div></div>` : ''}
 
-      ${linkSectionHTML(issue)}
+      <div style="margin-top:18px" id="tLinks">${linkSectionHTML(issue)}</div>
 
       <div style="margin-top:20px">
         <div class="micro" style="margin-bottom:8px">Comments <span id="cCount"></span></div>
@@ -744,8 +787,10 @@ function renderSettings() {
             <input class="input" style="flex:0 0 150px" data-col-name="${i}" value="${attr(c.name)}">
             <input class="input mono" style="flex:1;min-width:140px" data-col-label="${i}" value="${attr(c.label)}">
             <input type="color" value="${attr(c.color)}" data-col-color="${i}" style="width:38px;height:34px;border:1px solid var(--line);border-radius:8px;background:none;padding:2px;cursor:pointer">
+            <input class="input mono" type="number" min="0" max="99" step="1" data-col-wip="${i}" value="${attr((S.wip || {})[c.id] || '')}" placeholder="WIP" title="Work-in-progress limit for ${attr(c.name)} (blank = none)" style="flex:0 0 64px">
           </div>`).join('')}
         </div>
+        <span class="hint">WIP limits are a nudge, not a lock — an over-limit column header glows red, dragging still works.</span>
         <label class="row" style="font-size:12.5px;color:var(--fg-dim);cursor:pointer">
           <input type="checkbox" id="sClose" ${S.closeOnDone ? 'checked' : ''} style="accent-color:var(--accent)">
           A closed issue means Done — and dragging a card to Done closes it
@@ -977,6 +1022,9 @@ function wire() {
 
   $('#btnRefresh').onclick = () => { loadAll({ force: true }); loadInspiration(); };
   $('#btnNew').onclick = () => S.view === 'inspiration' ? openInspEdit(null) : openNewTask('todo');
+  document.addEventListener('input', e => {
+    if (e.target && e.target.id === 'linkFilter') filterLinkPick(e.target);
+  });
 
   let t;
   $('#search').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => { S.q = e.target.value; render(); }, 170); });
@@ -1068,6 +1116,23 @@ function wire() {
     else if (act === 'filter-clear') { S.filters = []; render(); }
     else if (act === 'lanes') { S.lanes = !S.lanes; store.set('lanes', S.lanes); render(); }
     else if (act === 'task-open') openTask(+el.dataset.num);
+    else if (act === 'link-add') {
+      const issue = S.issues.find(i => i.number === +el.dataset.num);
+      const pick = $('#linkPick');
+      const ref = pick ? pick.value : '';
+      if (!issue || !ref) return;
+      const { body, added } = addNeed(issue.body, ref);
+      if (!added) { toast('Already linked', ''); return; }
+      saveLinks(issue, body, el, `Linked ${ref}`);
+    }
+    else if (act === 'link-del') {
+      const issue = S.issues.find(i => i.number === +el.dataset.num);
+      const ref = el.dataset.ref || '';
+      if (!issue || !ref) return;
+      const { body, removed } = removeNeed(issue.body, ref);
+      if (!removed) { toast('Not linked', ''); return; }
+      saveLinks(issue, body, el, `Unlinked ${ref}`);
+    }
     else if (act === 'insp-new') openInspEdit(null);
     else if (act === 'insp-edit') openInspEdit(el.dataset.id);
     else if (act === 'insp-del') { S.inspiration = S.inspiration.filter(x => x.id !== el.dataset.id); renderInspiration(); saveInspiration(); }
@@ -1097,7 +1162,12 @@ function wire() {
       S.closeOnDone = $('#sClose').checked;
       const stale = Math.max(0, Math.min(90, parseInt($('#sStale').value, 10) || 0)) || DEFAULT_STALE_DAYS;
       S.staleDays = stale;
-      store.set('columns', S.columns); store.set('closeOnDone', S.closeOnDone); store.set('staleDays', S.staleDays);
+      S.wip = {};
+      S.columns.forEach((c, i) => {
+        const w = Math.max(0, Math.min(99, parseInt($(`[data-col-wip="${i}"]`).value, 10) || 0));
+        if (w > 0) S.wip[c.id] = w;
+      });
+      store.set('columns', S.columns); store.set('closeOnDone', S.closeOnDone); store.set('staleDays', S.staleDays); store.set('wip', S.wip);
       toast('Columns saved', 'ok'); renderSettings(); renderBoard();
     }
     else if (act === 'cols-reset') { S.columns = JSON.parse(JSON.stringify(DEFAULT_COLUMNS)); store.set('columns', S.columns); renderSettings(); }

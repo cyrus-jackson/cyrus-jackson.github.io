@@ -452,7 +452,7 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .col-head { display: flex; align-items: center; gap: 9px; padding: 12px 13px 10px; }
 .col-bar { width: 3px; height: 15px; border-radius: 3px; background: var(--col); }
 .col-head h3 { font-size: 12.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-dim); }
-.col-head .n { margin-left: auto; font-size: 11.5px; font-weight: 650; color: var(--fg-faint); background: var(--surface); padding: 1px 8px; border-radius: 20px; }
+.col-head .n { margin-left: auto; font-size: 11.5px; font-weight: 650; color: var(--fg-faint); background: var(--surface); padding: 1px 8px; border-radius: 20px; border: 1px solid transparent; }
 .col-sort {
   margin-left: auto; max-width: 118px;
   font-size: 11px; color: var(--fg-faint);
@@ -460,6 +460,11 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
   padding: 2px 2px; cursor: pointer;
 }
 .col-head .n + .col-sort { margin-left: 0; }
+.col-head .n + .n { margin-left: 0; }
+.col-head .n.over {
+  color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+}
 .col-sort:hover { color: var(--fg-dim); border-color: var(--line-2); }
 .col-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .col-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 9px; min-height: 60px; }
@@ -601,6 +606,9 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .blocked:hover { filter: brightness(1.15); }
 
 .link-list { display: flex; flex-direction: column; gap: 6px; }
+.link-item { display: flex; gap: 6px; align-items: stretch; }
+.link-item .link-row { flex: 1; min-width: 0; }
+.link-item .link-un { flex: 0 0 auto; align-self: center; }
 .link-row {
   display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
@@ -609,6 +617,9 @@ h1,h2,h3,h4 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
 .link-row:hover:not([disabled]) { border-color: var(--accent); }
 .link-row[disabled] { cursor: default; opacity: .65; }
 .link-row .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); }
+
+.link-add { display: flex; gap: 8px; margin-top: 10px; }
+.link-add .select { flex: 1; min-width: 0; }
 
 /* ---------- chase overview + folding milestones ---------- */
 

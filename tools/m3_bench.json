@@ -1,0 +1,38 @@
+{
+  "milestone": {
+    "title": "M3 — Networks, a city tap, and a server that makes heat",
+    "description": "Systems compose. Exit gate: on the starter world, tap the city feeder, wire a server, watch it draw power and warm the rock around it on the thermal overlay; tap the water main and fill a reservoir through pipe packets; all headless in CI with networks under 0.3 ms, buildings under 0.5 ms, the whole tick under 4.5 ms, deterministic and allocation-free. Also closes the two bugs found in review: water that loses its identity when it flows, and dug cells that need a suit. 22 tasks, 30.5 dev-days estimated, ~40 with contingency."
+  },
+  "column": "todo",
+  "tasks": [{
+      "id": "M3-23",
+      "title": "M3-23 Liquid pass measured in a player build, not the editor",
+      "body": "**Why this is needed.** M3-19 measured the liquid pass at 4.79 ms in Unity edit mode and found that\nonly 1.57 ms of it is the Burst kernel. The other 3.2 ms is `LiquidSystem`'s own managed work,\nwhich the editor runs under Mono rather than IL2CPP. That number is an upper bound, not a cost,\nand every decision about what to optimise next rests on knowing the real one.\n\n**What it achieves.** One representative figure for the liquid pass on the breach scenario, taken from a\nplayer build with the same split between kernel and managed remainder that the edit-mode test\nreports, so the two can be compared directly.\n\n- [ ] A headless player build that runs the breach scenario for a fixed tick count and reports the same fields as the edit-mode test\n- [ ] Kernel and managed-remainder split reported separately, as in M3-19\n- [ ] The figure recorded in ARCHITECTURE.md next to the edit-mode and headless ones, with the build configuration named\n- [ ] Whether the 1.2 ms budget is reachable without further work, answered from that figure\n\nDone when: The liquid pass has a number from a player build and ARCHITECTURE.md says what it was measured on.",
+      "days": 2,
+      "track": "E",
+      "needs": [
+        "M3-19"
+      ]
+    },
+    {
+      "id": "M3-24",
+      "title": "M3-24 Bound LiquidSystem's per-tick grid work by the awake spans",
+      "body": "**Why this is needed.** `LiquidSystem.Tick` copies mass, element, flags and contamination across the whole\ngrid every tick, then scans the whole grid again to diff identity. That is roughly 1.5 MB of\ncopying and a full-grid pass in a system whose entire design is that cost follows activity.\nM3-19 measured the managed remainder at 3.2 ms against a 1.2 ms budget for the whole pass, so\nthis is the larger of the two remaining costs.\n\n**What it achieves.** The bookkeeping around the solve scales with what is awake, the same way the solve\nitself already does, without changing what any of it computes.\n\n- [ ] The four `CopyTo` calls bounded by the awake spans the solver already derives\n- [ ] `MarkIdentityChanges` bounded the same way\n- [ ] Grid hashes bit-identical to the current behaviour across the breach scenario, by the M3-19 comparison\n- [ ] The managed remainder re-measured and recorded\n\nDone when: The liquid pass costs what activity costs, and the breach scenario hashes exactly as it did before.",
+      "days": 3,
+      "track": "E",
+      "needs": [
+        "M3-19"
+      ]
+    },
+    {
+      "id": "M3-25",
+      "title": "M3-25 Fewer, fatter liquid jobs",
+      "body": "**Why this is needed.** One `BurstLiquidKernel.Step` schedules 23 parallel-for jobs — two setup stages,\nfive per substep across four substeps, and the finish — each splitting 384 rows into 48\nbatches. The kernel measures 1.57 ms against a 1.2 ms line, and at this grid size the dispatch\nmay cost more than the arithmetic it dispatches. Nothing else about the kernel is known to be\nslow.\n\n**What it achieves.** The kernel inside its budget, or evidence that dispatch was not where the time went.\n\n- [ ] Dispatch cost measured against arithmetic before anything is changed, so the premise is tested first\n- [ ] Stages merged or batch size raised where the measurement says it pays\n- [ ] Bit-identical grids to the C# reference on every M3-19 test, unchanged\n- [ ] Target: kernel `Step` inside 1.2 ms on the breach scenario\n\nDone when: The kernel is inside 1.2 ms, or the measurement says dispatch was not the cost and records what is.",
+      "days": 2,
+      "track": "E",
+      "needs": [
+        "M3-19"
+      ]
+    }
+]
+}
