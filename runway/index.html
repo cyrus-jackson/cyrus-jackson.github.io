@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Runway Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a runway timeline across the top, pipeline summary, then a scannable list of openings beside a milestones column. */
+:root{
+  --bg:#F3F5F8; --panel:#FFFFFF; --ink:#16202C; --muted:#5A6576; --line:#DAE0E8;
+  --accent:#1D5FA8; --accent-soft:#E2ECF8; --ok:#1F7A4D; --ok-soft:#E1F2E8;
+  --warn:#A9620C; --warn-soft:#FBEEDB; --bad:#B3362E; --bad-soft:#F8E3E1; --idle:#77818F;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E141B; --panel:#151D27; --ink:#E5EAF0; --muted:#97A2B2; --line:#263242;
+  --accent:#7DB0EC; --accent-soft:#1A2A3F; --ok:#5DC28F; --ok-soft:#163024;
+  --warn:#E4A24C; --warn-soft:#352816; --bad:#EA7A70; --bad-soft:#3A1D1B; --idle:#8A95A4; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E141B; --panel:#151D27; --ink:#E5EAF0; --muted:#97A2B2; --line:#263242;
+  --accent:#7DB0EC; --accent-soft:#1A2A3F; --ok:#5DC28F; --ok-soft:#163024;
+  --warn:#E4A24C; --warn-soft:#352816; --bad:#EA7A70; --bad-soft:#3A1D1B; --idle:#8A95A4; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:22px}
+h1,h2{font-family:var(--display);font-stretch:85%;margin:0;text-wrap:balance}
+h1{font-size:clamp(28px,4vw,40px);font-weight:750;letter-spacing:-.01em}
+h2{font-size:15px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.lede{margin:4px 0 0;color:var(--muted);max-width:62ch}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+/* runway */
+.runway{display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center}
+.days{display:grid;gap:2px}
+.days b{font-family:var(--display);font-stretch:75%;font-size:64px;line-height:.9;font-weight:800;font-variant-numeric:tabular-nums}
+.days span{font-size:13px;color:var(--muted)}
+#timeline{min-width:0}
+#timeline svg{display:block;width:100%;height:auto;overflow:visible}
+@media (max-width:640px){.runway{grid-template-columns:1fr;gap:12px}.days b{font-size:52px}}
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:2px}
+@media (max-width:560px){.stats{grid-template-columns:1fr 1fr}.stats .stat:last-child{grid-column:1/-1}}
+.stat .k{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font-family:var(--display);font-stretch:80%;font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+.stat .s{font-size:12.5px;color:var(--muted)}
+.meter{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:4px}
+.meter i{display:block;height:100%;background:var(--accent)}
+/* main */
+.main{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start}
+@media (max-width:900px){.main{grid-template-columns:minmax(0,1fr)}}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:500 13px var(--body);padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+select,input,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:7px 9px;min-width:0}
+textarea{resize:vertical;min-height:70px}
+button{font:inherit;cursor:pointer}
+.btn{font:600 14px var(--body);padding:8px 14px;border-radius:7px;border:1px solid var(--accent);background:var(--accent);color:var(--panel)}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn.danger{background:transparent;color:var(--bad);border-color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* list */
+#list{display:grid;gap:10px}
+.row{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--rowc,var(--line));border-radius:10px;padding:13px 15px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px}
+.row .who{display:grid;gap:2px;min-width:0}
+.row .org{font-weight:600;font-size:16px;overflow-wrap:anywhere}
+.row .role{color:var(--muted);overflow-wrap:anywhere}
+.row .side{display:grid;gap:6px;justify-items:end;align-content:start}
+.row .meta{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted);align-items:center}
+.row .next{grid-column:1/-1;font-size:14px;overflow-wrap:anywhere}
+.row .next b{font-weight:600}
+.tag{font:500 12px var(--body);padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.tag.sugg{background:transparent;border:1px dashed var(--line);color:var(--muted)}
+.due{font-family:var(--mono);font-size:12.5px}
+.due.soon{color:var(--warn);font-weight:500}
+.due.past{color:var(--bad)}
+.status{font:600 13px var(--body);border-radius:999px;padding:4px 10px}
+.row a{color:var(--accent)}
+.edit{background:none;border:0;color:var(--muted);text-decoration:underline;font-size:13px;padding:0}
+@media (max-width:520px){.row{grid-template-columns:minmax(0,1fr)}.row .side{justify-items:start;grid-auto-flow:column;justify-content:start}}
+.empty{border:1px dashed var(--line);border-radius:10px;padding:26px;text-align:center;color:var(--muted)}
+/* milestones */
+#miles{display:grid;gap:2px;margin:10px 0 0;padding:0;list-style:none}
+#miles li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:start;padding:8px 0;border-bottom:1px solid var(--line)}
+#miles li:last-child{border-bottom:0}
+#miles .mt{overflow-wrap:anywhere}
+#miles .done .mt{text-decoration:line-through;color:var(--muted)}
+#miles .md{font-family:var(--mono);font-size:12.5px;color:var(--muted);white-space:nowrap}
+.addm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;margin-top:12px}
+.addm input[type=text]{grid-column:1/-1}
+/* dialog */
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);padding:0;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 32px)}
+dialog::backdrop{background:rgb(10 15 22 / .45)}
+dialog form{display:grid;gap:12px;padding:20px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:480px){.grid2{grid-template-columns:1fr}}
+label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+label > input,label > select,label > textarea{color:var(--ink)}
+.dlg-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between}
+.dlg-actions div{display:flex;gap:8px}
+.store{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-top:12px}
+.store-note{margin:0;font-size:13px;color:var(--muted);max-width:62ch;flex:1 1 280px}
+.store-actions{display:flex;flex-wrap:wrap;gap:8px}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:14px;max-width:calc(100vw - 32px)}
+@media (prefers-reduced-motion:no-preference){.row{transition:border-color .2s}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Runway Tracker</h1>
+    <p class="lede">Software roles, research-engineer roles and PhD applications in one place, measured against the days left on the runway.</p>
+    <div class="store">
+      <p class="store-note">Your data is saved only in this browser. Nothing is sent anywhere. Back it up to keep a copy or move it to another device.</p>
+      <div class="store-actions">
+        <button class="btn ghost" id="exportBtn" type="button">Back up</button>
+        <button class="btn ghost" id="importBtn" type="button">Restore from backup</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </div>
+    </div>
+  </header>
+
+  <section class="panel runway" aria-label="Runway">
+    <div class="days"><b id="daysLeft">—</b><span id="daysLabel">days until de-registration</span></div>
+    <div id="timeline" aria-hidden="true"></div>
+  </section>
+
+  <section class="stats" aria-label="Pipeline summary">
+    <div class="stat"><span class="k">Active</span><span class="v" id="sActive">—</span><span class="s">Researching, applied or interviewing</span></div>
+    <div class="stat"><span class="k">Applied, last 7 days</span><span class="v" id="sWeek">—</span><div class="meter"><i id="sWeekBar" style="width:0"></i></div><span class="s">Goal: 10–15 a week</span></div>
+    <div class="stat"><span class="k">Interviewing</span><span class="v" id="sInt">—</span><span class="s">Live conversations</span></div>
+    <div class="stat"><span class="k">Offers</span><span class="v" id="sOffer">—</span><span class="s">Target: one signed by end of January</span></div>
+    <div class="stat"><span class="k">Due in 14 days</span><span class="v" id="sDue">—</span><span class="s">Open deadlines coming up</span></div>
+  </section>
+
+  <div class="main">
+    <section aria-label="Openings">
+      <div class="toolbar">
+        <div class="chips" id="trackChips" role="group" aria-label="Track">
+          <button class="chip" data-track="all" aria-pressed="true">All</button>
+          <button class="chip" data-track="software" aria-pressed="false">Software</button>
+          <button class="chip" data-track="research" aria-pressed="false">Research engineer</button>
+          <button class="chip" data-track="phd" aria-pressed="false">PhD</button>
+        </div>
+        <div class="chips">
+          <select id="statusFilter" aria-label="Show">
+            <option value="active">Open only</option>
+            <option value="all">Everything</option>
+            <option value="closed">Closed only</option>
+          </select>
+          <button class="btn" id="addBtn" type="button">Add opening</button>
+        </div>
+      </div>
+      <div id="list"><div class="empty">Loading your openings…</div></div>
+    </section>
+
+    <aside class="panel" aria-label="Key dates">
+      <h2>Key dates</h2>
+      <ul id="miles"><li><span></span><span class="mt" style="color:var(--muted)">Loading key dates…</span><span></span></li></ul>
+      <form class="addm" id="mileForm">
+        <input type="text" id="mileTitle" placeholder="Add a date, e.g. ETH application due" aria-label="Key date title" required>
+        <input type="date" id="mileDate" aria-label="Key date" required>
+        <button class="btn ghost" type="submit">Add</button>
+      </form>
+    </aside>
+  </div>
+</div>
+
+<dialog id="editor">
+  <form id="editForm" method="dialog">
+    <h2 id="editTitle">Add opening</h2>
+    <div class="grid2">
+      <label>Organisation<input id="fOrg" required></label>
+      <label>Role or programme<input id="fRole" required></label>
+    </div>
+    <div class="grid2">
+      <label>Track<select id="fTrack"><option value="software">Software</option><option value="research">Research engineer</option><option value="phd">PhD</option></select></label>
+      <label>Status<select id="fStatus"></select></label>
+    </div>
+    <div class="grid2">
+      <label>Location<input id="fLoc" placeholder="Stuttgart, remote, US…"></label>
+      <label>Link<input id="fLink" type="url" placeholder="https://"></label>
+    </div>
+    <div class="grid2">
+      <label>Application deadline<input id="fDeadline" type="date"></label>
+      <label>Date applied<input id="fApplied" type="date"></label>
+    </div>
+    <label>Next step<input id="fNext" placeholder="Ask a former manager for a referral, finish SOP draft…"></label>
+    <label>Notes<textarea id="fNotes" placeholder="Contact, salary range, visa notes, lab fit…"></textarea></label>
+    <div class="dlg-actions">
+      <button class="btn danger" type="button" id="delBtn" hidden>Delete</button>
+      <div><button class="btn ghost" type="button" id="cancelBtn">Cancel</button><button class="btn" type="submit" id="saveBtn">Save</button></div>
+    </div>
+  </form>
+</dialog>
+<div id="toast" role="status" hidden></div>
+
+<script>
+(function(){
+const STATUSES=[["idea","Researching"],["applied","Applied"],["interview","Interviewing"],["offer","Offer"],["rejected","Rejected"],["withdrawn","Withdrawn"]];
+const STATUS_LABEL=Object.fromEntries(STATUSES);
+const STATUS_ORDER=Object.fromEntries(STATUSES.map((s,i)=>[s[0],i]));
+const OPEN=new Set(["idea","applied","interview","offer"]);
+const TRACK_LABEL={software:"Software",research:"Research engineer",phd:"PhD"};
+const STATUS_STYLE={idea:["var(--line)","transparent","var(--muted)"],applied:["var(--accent)","var(--accent-soft)","var(--accent)"],interview:["var(--warn)","var(--warn-soft)","var(--warn)"],offer:["var(--ok)","var(--ok-soft)","var(--ok)"],rejected:["var(--bad)","var(--bad-soft)","var(--bad)"],withdrawn:["var(--line)","transparent","var(--idle)"]};
+
+let db=null, openings=[], milestones=[], gotOpen=false, gotMiles=false;
+let track="all", show="active", editingId=null, deleteArmed=false;
+const $=id=>document.getElementById(id);
+
+function h(tag,attrs,...kids){const el=document.createElement(tag);for(const [k,v] of Object.entries(attrs||{})){if(v==null||v===false)continue;if(k==="class")el.className=v;else if(k==="text")el.textContent=v;else if(k.startsWith("on"))el.addEventListener(k.slice(2),v);else if(k==="style")el.setAttribute("style",v);else el.setAttribute(k,v===true?"":v);}for(const c of kids){if(c==null)continue;el.append(c.nodeType?c:document.createTextNode(String(c)));}return el;}
+function today(){const t=new Date();t.setHours(0,0,0,0);return t;}
+function parseDay(s){if(!s||!/^\d{4}-\d{2}-\d{2}$/.test(s))return null;const [y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d);}
+function daysUntil(s){const d=parseDay(s);return d?Math.round((d-today())/86400000):null;}
+function fmt(s){const d=parseDay(s);return d?d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):"";}
+function safeUrl(u){try{const x=new URL(u);return (x.protocol==="https:"||x.protocol==="http:")?x.href:null;}catch(e){return null;}}
+function isoToday(){const t=today();return t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");}
+let toastTimer;function toast(msg){const t=$("toast");t.textContent=msg;t.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.hidden=true,3200);}
+function failMsg(e){if(e&&e.code==="quota_exceeded")return "Storage is full. Delete a few old openings and try again.";if(e&&(e.code==="invalid_argument"))return "Couldn't save that change.";return "Couldn't save. Check your connection and try again.";}
+
+/* ---------- runway ---------- */
+function runwayEnd(){const dereg=milestones.find(m=>/de-?registration/i.test(m.title||""));if(dereg&&parseDay(dereg.date))return dereg;return null;}
+function renderRunway(){
+  const end=runwayEnd();
+  if(!end){$("daysLeft").textContent="—";$("daysLabel").textContent=gotMiles?"Add a “De-registration” key date to start the countdown":"days until de-registration";}
+  else{const n=daysUntil(end.date);$("daysLeft").textContent=String(Math.max(n,0));$("daysLabel").textContent=(n>=0?"days until de-registration · ":"de-registration passed · ")+fmt(end.date);}
+  drawTimeline(end);
+}
+function drawTimeline(end){
+  const box=$("timeline");box.textContent="";
+  const pts=milestones.filter(m=>parseDay(m.date));
+  const start=today();
+  let last=end?parseDay(end.date):null;
+  for(const m of pts){const d=parseDay(m.date);if(!last||d>last)last=d;}
+  if(!last||last<=start){return;}
+  const W=Math.max(box.clientWidth||600,260), H=86, padL=6, padR=6, y=38;
+  const span=last-start, x=d=>padL+(Math.min(Math.max(d-start,0),span)/span)*(W-padL-padR);
+  const NS="http://www.w3.org/2000/svg";
+  const svg=document.createElementNS(NS,"svg");svg.setAttribute("viewBox",`0 0 ${W} ${H}`);svg.setAttribute("width","100%");
+  const el=(n,a)=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);return e;};
+  svg.append(el("line",{x1:padL,x2:W-padR,y1:y,y2:y,stroke:"var(--line)","stroke-width":6,"stroke-linecap":"round"}));
+  // month ticks
+  const m0=new Date(start.getFullYear(),start.getMonth()+1,1);
+  const narrow=W<460;
+  for(let d=new Date(m0);d<=last;d=new Date(d.getFullYear(),d.getMonth()+1,1)){
+    const xx=x(d);svg.append(el("line",{x1:xx,x2:xx,y1:y+6,y2:y+12,stroke:"var(--muted)","stroke-width":1}));
+    if(!narrow||d.getMonth()%2===0){const t=el("text",{x:xx,y:y+26,"text-anchor":"middle","font-size":11,fill:"var(--muted)","font-family":"IBM Plex Mono, monospace"});t.textContent=d.toLocaleDateString("en-GB",{month:"short"});svg.append(t);}
+  }
+  // today
+  svg.append(el("circle",{cx:padL+1,cy:y,r:6,fill:"var(--accent)"}));
+  const tt=el("text",{x:padL,y:y-14,"font-size":11,fill:"var(--accent)","font-family":"Public Sans, sans-serif","font-weight":600});tt.textContent="Today";svg.append(tt);
+  // milestones
+  const sorted=pts.slice().sort((a,b)=>parseDay(a.date)-parseDay(b.date));
+  sorted.forEach((m,i)=>{const d=parseDay(m.date);if(d<start)return;const xx=x(d);const isEnd=end&&m.id===end.id;
+    svg.append(el("line",{x1:xx,x2:xx,y1:y-8,y2:y+8,stroke:isEnd?"var(--bad)":(m.done?"var(--ok)":"var(--warn)"),"stroke-width":isEnd?3:2}));
+    const t=el("title",{});t.textContent=m.title+" · "+fmt(m.date);svg.lastChild.append(t);
+  });
+  if(end){const xx=x(parseDay(end.date));const lbl=el("text",{x:xx,y:y-14,"text-anchor":"end","font-size":11,fill:"var(--bad)","font-family":"Public Sans, sans-serif","font-weight":600});lbl.textContent="Runway ends";svg.append(lbl);}
+  box.append(svg);
+}
+
+/* ---------- stats ---------- */
+function renderStats(){
+  const open=openings.filter(o=>OPEN.has(o.status));
+  $("sActive").textContent=gotOpen?String(open.filter(o=>o.status!=="offer").length):"—";
+  const wk=openings.filter(o=>{const n=daysUntil(o.applied);return n!=null&&n<=0&&n>=-6;}).length;
+  $("sWeek").textContent=gotOpen?String(wk):"—";
+  $("sWeekBar").style.width=Math.min(100,wk/10*100)+"%";
+  $("sInt").textContent=gotOpen?String(openings.filter(o=>o.status==="interview").length):"—";
+  $("sOffer").textContent=gotOpen?String(openings.filter(o=>o.status==="offer").length):"—";
+  $("sDue").textContent=gotOpen?String(openings.filter(o=>OPEN.has(o.status)&&o.status!=="offer"&&(()=>{const n=daysUntil(o.deadline);return n!=null&&n>=0&&n<=14;})()).length):"—";
+}
+
+/* ---------- list ---------- */
+function renderList(){
+  const list=$("list");list.textContent="";
+  if(!db){list.append(h("div",{class:"empty",text:"Saving isn't available in this browser."}));return;}
+  if(!gotOpen){list.append(h("div",{class:"empty",text:"Loading your openings…"}));return;}
+  let rows=openings.filter(o=>track==="all"||o.track===track);
+  if(show==="active")rows=rows.filter(o=>OPEN.has(o.status));else if(show==="closed")rows=rows.filter(o=>!OPEN.has(o.status));
+  rows.sort((a,b)=>rank(a)-rank(b)||((daysUntil(a.deadline)??9999)-(daysUntil(b.deadline)??9999)));
+  if(!rows.length){list.append(h("div",{class:"empty"},openings.length?"Nothing matches these filters.":"No openings yet. Use “Add opening” to track your first job or PhD programme, or restore a backup."));return;}
+  for(const o of rows)list.append(rowEl(o));
+}
+function rank(o){return {offer:0,interview:1,applied:2,idea:3,rejected:4,withdrawn:5}[o.status]??3;}
+function rowEl(o){
+  const st=STATUS_STYLE[o.status]||STATUS_STYLE.idea;
+  const sel=h("select",{class:"status","aria-label":"Status for "+(o.org||"opening"),style:`border:1px solid ${st[0]};background:${st[1]};color:${st[2]}`,onchange:e=>setStatus(o,e.target.value)});
+  for(const [v,l] of STATUSES){const op=h("option",{value:v,text:l});if(v===o.status)op.selected=true;sel.append(op);}
+  const n=daysUntil(o.deadline);
+  let due=null;
+  if(o.deadline){const cls="due"+(n<0?" past":(n<=14?" soon":""));due=h("span",{class:cls,text:"Due "+fmt(o.deadline)+(OPEN.has(o.status)&&o.status!=="offer"?(n<0?" · passed":n===0?" · today":" · "+n+"d"):"")});}
+  const link=safeUrl(o.link);
+  return h("article",{class:"row",style:"--rowc:"+st[0]},
+    h("div",{class:"who"},h("span",{class:"org",text:o.org||"Untitled"}),h("span",{class:"role",text:o.role||""})),
+    h("div",{class:"side"},sel,h("button",{class:"edit",type:"button",onclick:()=>openEditor(o),text:"Edit"})),
+    h("div",{class:"meta"},
+      h("span",{class:"tag",text:TRACK_LABEL[o.track]||"Other"}),
+      o.suggested?h("span",{class:"tag sugg",text:"Suggested to check"}):null,
+      o.location?h("span",{text:o.location}):null,
+      due,
+      o.applied?h("span",{class:"due",text:"Applied "+fmt(o.applied)}):null,
+      link?h("a",{href:link,target:"_blank",rel:"noopener",text:"Posting ↗"}):null),
+    o.nextStep?h("div",{class:"next"},h("b",{text:"Next: "}),o.nextStep):null
+  );
+}
+async function setStatus(o,v){
+  const patch={status:v,updatedAt:new Date().toISOString(),suggested:false};
+  if(v==="applied"&&!o.applied)patch.applied=isoToday();
+  try{await db.collection("openings").doc(o.id).update(patch);toast("Marked "+STATUS_LABEL[v].toLowerCase());}catch(e){toast(failMsg(e));renderList();}
+}
+
+/* ---------- editor ---------- */
+const fStatus=$("fStatus");for(const [v,l] of STATUSES)fStatus.append(h("option",{value:v,text:l}));
+function openEditor(o){
+  editingId=o?o.id:null;deleteArmed=false;
+  $("editTitle").textContent=o?"Edit opening":"Add opening";
+  $("fOrg").value=o?.org||"";$("fRole").value=o?.role||"";$("fTrack").value=o?.track||(track!=="all"?track:"software");
+  $("fStatus").value=o?.status||"idea";$("fLoc").value=o?.location||"";$("fLink").value=o?.link||"";
+  $("fDeadline").value=o?.deadline||"";$("fApplied").value=o?.applied||"";$("fNext").value=o?.nextStep||"";$("fNotes").value=o?.notes||"";
+  const d=$("delBtn");d.hidden=!o;d.textContent="Delete";
+  try{$("editor").showModal();}catch(e){$("editor").setAttribute("open","");}
+  $("fOrg").focus();
+}
+function closeEditor(){try{$("editor").close();}catch(e){$("editor").removeAttribute("open");}editingId=null;}
+$("cancelBtn").addEventListener("click",closeEditor);
+$("addBtn").addEventListener("click",()=>{if(!db){toast("Saving isn't available in this browser.");return;}openEditor(null);});
+$("editForm").addEventListener("submit",async e=>{
+  e.preventDefault();if(!db)return;
+  const now=new Date().toISOString();
+  const prev=editingId?openings.find(o=>o.id===editingId):null;
+  let status=$("fStatus").value, applied=$("fApplied").value;
+  if(status==="applied"&&!applied)applied=isoToday();
+  const body={org:$("fOrg").value.trim(),role:$("fRole").value.trim(),track:$("fTrack").value,status,location:$("fLoc").value.trim(),link:$("fLink").value.trim(),deadline:$("fDeadline").value,applied,nextStep:$("fNext").value.trim(),notes:$("fNotes").value.trim(),suggested:false,createdAt:prev?.createdAt||now,updatedAt:now};
+  $("saveBtn").disabled=true;
+  try{const ref=editingId?db.collection("openings").doc(editingId):db.collection("openings").doc();await ref.set(body);closeEditor();toast(prev?"Saved":"Added "+body.org);}catch(err){toast(failMsg(err));}
+  $("saveBtn").disabled=false;
+});
+$("delBtn").addEventListener("click",async()=>{
+  if(!editingId)return;
+  if(!deleteArmed){deleteArmed=true;$("delBtn").textContent="Delete for good?";return;}
+  try{await db.collection("openings").doc(editingId).delete();closeEditor();toast("Deleted");}catch(e){toast(failMsg(e));}
+});
+
+/* ---------- filters ---------- */
+$("trackChips").addEventListener("click",e=>{const b=e.target.closest("[data-track]");if(!b)return;track=b.dataset.track;for(const c of $("trackChips").children)c.setAttribute("aria-pressed",String(c===b));renderList();});
+$("statusFilter").addEventListener("change",e=>{show=e.target.value;renderList();});
+
+/* ---------- milestones ---------- */
+function renderMiles(){
+  const ul=$("miles");ul.textContent="";
+  if(!db){ul.append(h("li",{},h("span"),h("span",{class:"mt",text:"Key dates appear here when the tracker is opened signed in."}),h("span")));return;}
+  if(!gotMiles){ul.append(h("li",{},h("span"),h("span",{class:"mt",text:"Loading key dates…"}),h("span")));return;}
+  const ms=milestones.slice().sort((a,b)=>(parseDay(a.date)||0)-(parseDay(b.date)||0));
+  if(!ms.length){ul.append(h("li",{},h("span"),h("span",{class:"mt",text:"No key dates yet. Add your de-registration date first."}),h("span")));return;}
+  for(const m of ms){
+    const n=daysUntil(m.date);
+    const cb=h("input",{type:"checkbox","aria-label":"Done: "+m.title,onchange:e=>toggleMile(m,e.target.checked)});cb.checked=!!m.done;
+    const rm=h("button",{class:"edit",type:"button","aria-label":"Remove "+m.title,text:"Remove",onclick:()=>removeMile(m,rm)});
+    ul.append(h("li",{class:m.done?"done":""},cb,h("div",{style:"display:grid;gap:2px;min-width:0"},h("span",{class:"mt",text:m.title}),rm),h("span",{class:"md",text:fmt(m.date)+(n!=null&&!m.done?(n<0?" · passed":" · "+n+"d"):"")}))) ;
+  }
+}
+async function toggleMile(m,v){try{await db.collection("milestones").doc(m.id).update({done:v});}catch(e){toast(failMsg(e));renderMiles();}}
+const armedMiles=new Set();
+async function removeMile(m,btn){if(!armedMiles.has(m.id)){armedMiles.add(m.id);btn.textContent="Remove for good?";return;}try{await db.collection("milestones").doc(m.id).delete();toast("Removed");}catch(e){toast(failMsg(e));}}
+$("mileForm").addEventListener("submit",async e=>{e.preventDefault();if(!db){toast("Open this tracker signed in to save dates.");return;}
+  const title=$("mileTitle").value.trim(),date=$("mileDate").value;if(!title||!date)return;
+  try{await db.collection("milestones").doc().set({title,date,done:false});$("mileTitle").value="";$("mileDate").value="";toast("Added "+title);}catch(err){toast(failMsg(err));}
+});
+
+function renderAll(){renderRunway();renderStats();renderList();renderMiles();}
+let rt;window.addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(()=>drawTimeline(runwayEnd()),120);});
+renderAll();
+
+function makeLocalDb(){
+  const KEY="runway-tracker-v1";
+  const state={openings:{},milestones:{}};
+  let persist=true;
+  function load(){
+    try{const raw=localStorage.getItem(KEY);const p=raw?JSON.parse(raw):null;
+      state.openings=(p&&p.openings&&typeof p.openings==="object")?p.openings:{};
+      state.milestones=(p&&p.milestones&&typeof p.milestones==="object")?p.milestones:{};
+    }catch(e){persist=false;}
+  }
+  load();
+  const subs={openings:[],milestones:[]};
+  const snap=c=>({docs:Object.entries(state[c]).map(([id,d])=>({id,data:()=>({...d})}))});
+  const emit=c=>{for(const f of subs[c])f(snap(c));};
+  function save(){if(!persist)return;try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){const err=new Error("save failed");err.code="quota_exceeded";throw err;}}
+  const newId=()=>(window.crypto&&crypto.randomUUID)?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
+  function change(c,id,next){const had=Object.prototype.hasOwnProperty.call(state[c],id),prev=state[c][id];
+    if(next===undefined)delete state[c][id];else state[c][id]=next;
+    try{save();}catch(e){if(had)state[c][id]=prev;else delete state[c][id];throw e;}
+    emit(c);}
+  window.addEventListener("storage",e=>{if(e.key===KEY){load();emit("openings");emit("milestones");}});
+  const str=v=>typeof v==="string"?v.slice(0,4000):"";
+  const okId=id=>typeof id==="string"&&/^[A-Za-z0-9_\-.~:@+]{1,200}$/.test(id);
+  const TRACKS=new Set(["software","research","phd"]);
+  function cleanOpening(d){const o={};for(const k of ["org","role","location","link","deadline","applied","nextStep","notes","createdAt","updatedAt"])o[k]=str(d[k]);
+    o.track=TRACKS.has(d.track)?d.track:"software";o.status=STATUS_LABEL[d.status]?d.status:"idea";o.suggested=d.suggested===true;return o;}
+  const cleanMile=d=>({title:str(d.title),date:str(d.date),done:d.done===true});
+  return {
+    persistent:()=>persist,
+    collection(c){return {
+      onSnapshot(f){subs[c].push(f);setTimeout(()=>f(snap(c)),0);return ()=>{subs[c]=subs[c].filter(x=>x!==f);};},
+      doc(id){id=id||newId();return {id,
+        async set(d){change(c,id,{...d});},
+        async update(p){if(!state[c][id]){const e=new Error("missing");e.code="not_found";throw e;}change(c,id,{...state[c][id],...p});},
+        async delete(){change(c,id,undefined);}
+      };}
+    };},
+    exportAll(){return {app:"runway-tracker",version:1,exportedAt:new Date().toISOString(),openings:state.openings,milestones:state.milestones};},
+    importAll(obj){
+      if(!obj||typeof obj!=="object"||obj.app!=="runway-tracker"){const e=new Error("bad file");e.code="bad_file";throw e;}
+      const before=JSON.stringify(state);let n=0,m=0;
+      for(const [id,d] of Object.entries(obj.openings||{}))if(okId(id)&&d&&typeof d==="object"){state.openings[id]=cleanOpening(d);n++;}
+      for(const [id,d] of Object.entries(obj.milestones||{}))if(okId(id)&&d&&typeof d==="object"){state.milestones[id]=cleanMile(d);m++;}
+      try{save();}catch(e){const b=JSON.parse(before);state.openings=b.openings;state.milestones=b.milestones;throw e;}
+      emit("openings");emit("milestones");return [n,m];
+    }
+  };
+}
+
+db=makeLocalDb();
+if(!db.persistent())toast("This browser blocks saving. Changes will be lost when you close the page.");
+db.collection("openings").onSnapshot(s=>{openings=s.docs.map(d=>({id:d.id,...d.data()}));gotOpen=true;renderStats();renderList();});
+db.collection("milestones").onSnapshot(s=>{milestones=s.docs.map(d=>({id:d.id,...d.data()}));gotMiles=true;armedMiles.clear();renderRunway();renderMiles();});
+
+$("exportBtn").addEventListener("click",()=>{
+  const blob=new Blob([JSON.stringify(db.exportAll(),null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="runway-tracker-backup-"+isoToday()+".json";
+  document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast("Backup downloaded");
+});
+$("importBtn").addEventListener("click",()=>$("importFile").click());
+$("importFile").addEventListener("change",async e=>{
+  const f=e.target.files&&e.target.files[0];e.target.value="";if(!f)return;
+  try{const [n,m]=db.importAll(JSON.parse(await f.text()));toast("Restored "+n+" openings and "+m+" key dates");}
+  catch(err){toast(err&&err.code==="quota_exceeded"?failMsg(err):"That file isn't a Runway Tracker backup.");}
+});
+})();
+</script>
+</body>
+</html>
